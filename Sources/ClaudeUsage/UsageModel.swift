@@ -91,7 +91,7 @@ enum UsageModel {
         if let weekly = entries.first(where: { $0.kind == "weekly_all" }) {
             add(
                 id: "weekly_all",
-                title: "Current week (all models)",
+                title: "Current week",
                 percent: weekly.percent,
                 resetsAt: weekly.resets_at,
                 severity: weekly.severity,
@@ -100,7 +100,7 @@ enum UsageModel {
         }
         add(
             id: "weekly_all",
-            title: "Current week (all models)",
+            title: "Current week",
             percent: response.seven_day?.utilization,
             resetsAt: response.seven_day?.resets_at,
             severity: nil,
