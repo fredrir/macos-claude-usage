@@ -24,6 +24,17 @@ enum ClaudeUsageApp {
             return
         }
 
+        if let index = CommandLine.arguments.firstIndex(of: "--screenshot") {
+            let path = CommandLine.arguments.dropFirst(index + 1).first ?? "docs/screenshots"
+            do {
+                try Screenshots.write(into: URL(fileURLWithPath: path))
+            } catch {
+                print("error: \(error.localizedDescription)")
+                exit(1)
+            }
+            return
+        }
+
         let application = NSApplication.shared
         application.delegate = delegate
         application.setActivationPolicy(.accessory)

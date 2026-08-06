@@ -5,12 +5,20 @@ A macOS menu bar app showing how much Claude Code quota you have left.
 Collapsed, it shows two segmented gauges — **current session** and **weekly Fable** —
 each with the percentage still available:
 
-```
-▰▰▰▰▱▱▱ 58%  ▰▰▰▰▰▱▱ 82%
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menubar-dark.png">
+  <img src="docs/screenshots/menubar-light.png" width="155" alt="Menu bar: two segmented gauges reading 58% and 82%">
+</picture>
 
 Click it for every limit window the account reports: current session, current week across
 all models, current week for Fable, and whichever extra windows exist (Opus, Sonnet, …).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dropdown-dark.png">
+  <img src="docs/screenshots/dropdown-light.png" width="292" alt="Dropdown listing the session, weekly, Fable and Opus windows with usage bars and reset times">
+</picture>
+
+Those two images are rendered by the app itself — see [Screenshots](#screenshots).
 
 ## Install
 
@@ -48,18 +56,25 @@ seconds**; a window whose `utilization` is `null` is hidden rather than drawn as
 
 ## Rate limiting
 
-The endpoint is strict — it answers `429` with a `retry-after` measured in minutes, and
-retrying *during* the penalty appears to extend it. Claude Code caches a successful response
-for a full hour.
+This endpoint punishes eagerness, and the penalty **escalates**. Measured against the live
+API: a first request answered `429` with `retry-after: 654`; after a burst of polling every
+two minutes, a single request made following 15 minutes of complete silence still answered
+`429`, now with `retry-after: 2023`. Requests made *during* a penalty extend it rather than
+simply being refused. Claude Code itself caches a successful response for a full hour.
 
 So the app is deliberately conservative:
 
-- polls on a fixed interval (default 15 min, selectable 10/15/30/60 in the dropdown)
-- never sends a request before a recorded `retry-after` has elapsed
+- polls on a fixed interval (default 30 min, selectable 15/30/60 in the dropdown)
+- never sends a request before a recorded `retry-after` has elapsed, plus a 60s margin so it
+  cannot land on the boundary and re-trigger the penalty
+- enforces a 15 minute floor between calls, so mashing Refresh cannot burn the budget
 - refreshes on menu-open only if the data has aged past half the poll interval
 - exponential backoff, capped at an hour, for network and 5xx errors
 - keeps the last good payload in `~/Library/Application Support/ClaudeUsage/usage.json`
   so a restart paints immediately; anything older than an hour renders dimmed
+
+If you ever see it stuck on "Rate limited", leave it alone — it is already waiting exactly as
+long as the server asked, and poking it makes the wait longer.
 
 ## Token refresh
 
@@ -94,6 +109,7 @@ CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/release/ClaudeUsage
 | File | Role |
 | --- | --- |
 | `Keychain.swift` | reads/writes the `Claude Code-credentials` item |
+| `Clock.swift` | "now", with a seam so screenshots can pin it |
 | `OAuth.swift` | credential model, refresh flow, cross-process lock |
 | `UsageAPI.swift` | endpoint call, decoding, 429/401 handling |
 | `UsageModel.swift` | normalises the response into an ordered `[Bucket]` |
@@ -101,3 +117,33 @@ CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/release/ClaudeUsage
 | `GaugeRenderer.swift` | draws the menu bar image |
 | `StatusItemController.swift` | `NSStatusItem` + popover wiring |
 | `DropdownView.swift` | SwiftUI dropdown |
+| `Screenshots.swift` | offscreen render of the README images |
+
+## Screenshots
+
+The images above are generated, never captured by hand:
+
+```sh
+./screenshots.sh            # rewrite docs/screenshots/
+./screenshots.sh --check    # fail if the committed PNGs are out of date
+```
+
+`--check` renders to a temp directory and diffs, so a UI change that was not accompanied by a
+screenshot refresh shows up as a failure rather than as a quietly outdated README.
+
+Under the hood it is `ClaudeUsage --screenshot <dir>`. The app puts the real `DropdownView` in
+an `NSHostingView` inside an offscreen window and reads the layer back at 2×, so the picker,
+the checkbox and the links are the actual controls rather than a mock-up, and the menu bar
+chip comes from the same `GaugeRenderer` that draws the status item. Both are rendered twice,
+once per appearance, and the README picks light or dark from `prefers-color-scheme`.
+
+Output is byte-identical between runs — `git status` stays clean unless the UI actually
+changed. Two things make that true:
+
+- a fixture compiled into `Screenshots.swift` rather than live account data, so the numbers in
+  the README are not anyone's real usage
+- a pinned clock (`AppClock.fixedNow`) and a pinned `UTC` timezone, so "Resets in 2h 41m",
+  "Resets Mon 09:00" and "Updated 14:27" are fixed strings instead of whatever the wall clock
+  said at render time
+
+It needs a window server, so run it on a logged-in Mac rather than over a bare SSH session.

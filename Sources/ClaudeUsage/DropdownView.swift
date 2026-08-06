@@ -44,7 +44,6 @@ struct DropdownView: View {
             HStack(spacing: 6) {
                 Text("Check every")
                 Picker("", selection: $store.pollInterval) {
-                    Text("10 min").tag(TimeInterval(600))
                     Text("15 min").tag(TimeInterval(900))
                     Text("30 min").tag(TimeInterval(1800))
                     Text("60 min").tag(TimeInterval(3600))
@@ -181,7 +180,7 @@ extension UsageStore {
     }
 
     static func minutesUntil(_ date: Date) -> Int? {
-        let seconds = date.timeIntervalSinceNow
+        let seconds = date.timeIntervalSince(AppClock.now)
         guard seconds > 0 else { return nil }
         return max(1, Int((seconds / 60).rounded(.up)))
     }

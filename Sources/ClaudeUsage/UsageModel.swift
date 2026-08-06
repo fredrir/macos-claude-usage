@@ -98,13 +98,15 @@ extension Array where Element == Bucket {
 enum ResetFormatter {
     private static let weekdayTime: DateFormatter = {
         let formatter = DateFormatter()
+        // The rest of the UI is English-only; a localised weekday would be the odd one out.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "EEE HH:mm"
         return formatter
     }()
 
     static func text(for date: Date?) -> String? {
         guard let date else { return nil }
-        let interval = date.timeIntervalSinceNow
+        let interval = date.timeIntervalSince(AppClock.now)
         guard interval > 0 else { return "Resets now" }
 
         if interval < 24 * 3600 {

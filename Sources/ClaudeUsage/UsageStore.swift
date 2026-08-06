@@ -14,9 +14,14 @@ final class UsageStore: ObservableObject {
         case failed(String)
     }
 
-    /// The endpoint answered a 429 with `retry-after: 654`, and Claude Code itself caches a
-    /// successful response for a full hour. Never ask more often than this.
-    private static let minimumSpacing: TimeInterval = 600
+    /// The endpoint punishes eagerness: measured live, `retry-after` grew from 654s to 2023s
+    /// after a burst of polling, and a request made *during* a penalty extends it rather than
+    /// being merely refused. Claude Code itself caches a successful response for a full hour.
+    /// Never ask more often than this, and never ask inside a penalty window.
+    private static let minimumSpacing: TimeInterval = 900
+    /// Added on top of the server's `retry-after` so we never land exactly on the boundary and
+    /// re-trigger the penalty.
+    private static let retryAfterMargin: TimeInterval = 60
     /// Anything older than this is shown dimmed.
     static let stalenessThreshold: TimeInterval = 3600
 
@@ -36,12 +41,21 @@ final class UsageStore: ObservableObject {
 
     var isStale: Bool {
         guard let lastUpdated else { return true }
-        return Date().timeIntervalSince(lastUpdated) > Self.stalenessThreshold
+        return AppClock.now.timeIntervalSince(lastUpdated) > Self.stalenessThreshold
     }
 
     init() {
         let stored = UserDefaults.standard.double(forKey: "pollInterval")
-        pollInterval = stored > 0 ? stored : 900
+        pollInterval = stored > 0 ? stored : 1800
+    }
+
+    /// A store with fixed contents and no networking or timers, used by `--screenshot` to render
+    /// the real views against a pinned fixture.
+    init(fixture buckets: [Bucket], lastUpdated: Date, status: Status = .ok, pollInterval: TimeInterval = 1800) {
+        self.pollInterval = pollInterval
+        self.buckets = buckets
+        self.lastUpdated = lastUpdated
+        self.status = status
     }
 
     func start() {
@@ -114,7 +128,7 @@ final class UsageStore: ObservableObject {
         } catch let error as UsageAPIError {
             switch error {
             case .rateLimited(let retryAfter):
-                let until = Date().addingTimeInterval(retryAfter)
+                let until = Date().addingTimeInterval(retryAfter + Self.retryAfterMargin)
                 nextAllowedFetch = until
                 rateLimitedUntil = until
                 status = .rateLimited(until: until)
