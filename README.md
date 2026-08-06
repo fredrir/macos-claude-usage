@@ -2,39 +2,30 @@
 
 A macOS menu bar app showing how much Claude Code quota you have left.
 
-Collapsed, it shows two segmented gauges — **current session** and **weekly Fable** —
-each with the percentage still available:
+## Collapsed
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menubar-dark.png">
   <img src="docs/screenshots/menubar-light.png" width="155" alt="Menu bar: two segmented gauges reading 58% and 82%">
 </picture>
 
-Click it for every limit window the account reports: current session, current week across
-all models, current week for Fable, and whichever extra windows exist (Opus, Sonnet, …).
+## Dropdown
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dropdown-dark.png">
   <img src="docs/screenshots/dropdown-light.png" width="292" alt="Dropdown listing the session, weekly, Fable and Opus windows with usage bars and reset times">
 </picture>
 
-Those two images are rendered by the app itself — see [Screenshots](#screenshots).
-
 ## Install
 
 ```sh
-./build.sh                # builds, signs, installs to ~/Applications
+./build.sh
 open ~/Applications/ClaudeUsage.app
+./build.sh --no-install # Leaves ClaudeUsage.app in the repo instead
 ```
 
-`./build.sh --no-install` leaves `ClaudeUsage.app` in the repo instead.
-
-Requires the Swift toolchain from Xcode **or** the Command Line Tools — full Xcode is not
-needed, the bundle is assembled by hand from a SwiftPM build.
-
-On first launch macOS asks for permission to read the Claude Code credentials from your
-Keychain. Choose **Always Allow**. Because the bundle is ad-hoc signed, its signature changes
-on every rebuild, so the prompt reappears after a `./build.sh`.
+> On first launch macOS asks for permission to read the Claude Code credentials from your
+Keychain. Choose **Always Allow**.
 
 ## Where the numbers come from
 
@@ -121,15 +112,27 @@ CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/release/ClaudeUsage
 
 ## Screenshots
 
-The images above are generated, never captured by hand:
+The images above are generated, never captured by hand, and refreshed by a pre-commit hook —
+so a commit that changes the interface carries the matching images with it. Once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-commit` then re-renders and stages `docs/screenshots/` whenever the commit
+touches `Sources/ClaudeUsage/*.swift`, `Package.swift` or `screenshots.sh`, and does nothing
+at all otherwise — a README-only commit does not pay for a build. Bypass it with
+`SKIP_SCREENSHOTS=1 git commit` or `git commit --no-verify`.
+
+By hand, or from CI:
 
 ```sh
 ./screenshots.sh            # rewrite docs/screenshots/
 ./screenshots.sh --check    # fail if the committed PNGs are out of date
 ```
 
-`--check` renders to a temp directory and diffs, so a UI change that was not accompanied by a
-screenshot refresh shows up as a failure rather than as a quietly outdated README.
+`--check` renders to a temp directory and diffs, so a UI change committed with the hook
+bypassed shows up as a failure rather than as a quietly outdated README.
 
 Under the hood it is `ClaudeUsage --screenshot <dir>`. The app puts the real `DropdownView` in
 an `NSHostingView` inside an offscreen window and reads the layer back at 2×, so the picker,
@@ -146,4 +149,5 @@ changed. Two things make that true:
   "Resets Mon 09:00" and "Updated 14:27" are fixed strings instead of whatever the wall clock
   said at render time
 
-It needs a window server, so run it on a logged-in Mac rather than over a bare SSH session.
+It needs a window server, so run it on a logged-in Mac rather than over a bare SSH session; a
+render that fails aborts the commit rather than letting a stale image through silently.
