@@ -43,7 +43,7 @@ final class StatusItemController {
     private func render() {
         let items = [store.buckets.session, store.buckets.fable]
             .compactMap { $0 }
-            .map { GaugeRenderer.Item(remaining: $0.remaining) }
+            .map { GaugeRenderer.Item(bucket: $0) }
 
         statusItem.button?.image = GaugeRenderer.image(for: items, dimmed: store.isStale)
         statusItem.button?.toolTip = tooltip

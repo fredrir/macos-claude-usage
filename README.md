@@ -27,23 +27,40 @@ open ~/Applications/ClaudeUsage.app
 > On first launch macOS asks for permission to read the Claude Code credentials from your
 Keychain. Choose **Always Allow**.
 
+```sh
+./build.sh --signing-identity "Apple Development: Your Name (TEAMID)"
+```
+
 ## Where the numbers come from
 
 `GET https://api.anthropic.com/api/oauth/usage` — the same endpoint behind Claude Code's own
 `/usage` command. The OAuth token is read from the Keychain item Claude Code stores under the
 service `Claude Code-credentials`.
 
-Response fields, all confirmed against the Claude Code binary:
+`limits[]` is the authoritative view — every window in one array, each with a `severity` the
+server has already worked out. The top-level keys duplicate the first two and are read only as
+a fallback.
 
 | Field | Meaning |
 | --- | --- |
-| `five_hour` | current session window |
-| `seven_day` | current week, all models |
-| `limits[]` | per-model weekly windows — `kind: "weekly_scoped"`, `scope.model.display_name` |
-| `seven_day_opus`, `seven_day_sonnet`, … | additional weekly windows when the plan has them |
+| `limits[]` `kind: "session"` | current session window |
+| `limits[]` `kind: "weekly_all"` | current week, all models |
+| `limits[]` `kind: "weekly_scoped"` | per-model weekly window — model in `scope.model.display_name` |
+| `percent` | 0–100 consumed |
+| `severity` | `normal` / `warning` / `critical` — drives the green/orange/red tint |
+| `resets_at` | **ISO 8601 string**, e.g. `2026-08-06T21:00:00.290962+00:00` |
+| `five_hour`, `seven_day`, `seven_day_opus`, … | fallback windows; most are `null` |
 
-`utilization` (and `limits[].percent`) is a percentage **0–100**; `resets_at` is **unix
-seconds**; a window whose `utilization` is `null` is hidden rather than drawn as 0%.
+Two traps, both found the hard way against the live endpoint:
+
+- `resets_at` is an **ISO 8601 string here**, even though the `anthropic-ratelimit-unified-*`
+  response headers express the same concept as epoch seconds. Decoding it as a number fails
+  the whole payload.
+- It carries microsecond precision, which `ISO8601DateFormatter` will not parse even with
+  `.withFractionalSeconds`. The fraction is stripped before parsing.
+
+A window whose percentage is `null` is hidden rather than drawn as 0%, which is why a plan
+with no separate Opus window shows three rows rather than five.
 
 ## Rate limiting
 
@@ -69,7 +86,7 @@ long as the server asked, and poking it makes the wait longer.
 
 ## Token refresh
 
-The access token expires roughly every 8 hours. The app refreshes it itself against
+Access token expires roughly every 8 hours. The app refreshes it itself against
 `https://platform.claude.com/v1/oauth/token` and writes the result back to the same Keychain
 item, so the menu bar keeps working even if you have not opened Claude Code.
 
@@ -95,11 +112,20 @@ swift build -c release --product ClaudeUsage
 
 # drive the UI from a JSON file instead of the live endpoint
 CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/release/ClaudeUsage
+
+# what the running app actually did — every fetch, outcome and wait
+tail -f "$HOME/Library/Application Support/ClaudeUsage/usage.log"
 ```
+
+The log matters more than it looks: the rate-limit windows are long enough that "waiting
+exactly as instructed" and "silently wedged" are indistinguishable from the menu bar. It also
+names the offending field on a decode failure rather than reporting Foundation's opaque *"the
+data couldn't be read because it isn't in the correct format"*.
 
 | File | Role |
 | --- | --- |
 | `Keychain.swift` | reads/writes the `Claude Code-credentials` item |
+| `Log.swift` | append-only log of fetches, outcomes and waits |
 | `Clock.swift` | "now", with a seam so screenshots can pin it |
 | `OAuth.swift` | credential model, refresh flow, cross-process lock |
 | `UsageAPI.swift` | endpoint call, decoding, 429/401 handling |

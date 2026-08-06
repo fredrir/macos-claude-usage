@@ -9,6 +9,12 @@ enum GaugeRenderer {
     struct Item {
         /// Percentage of the window still available, 0–100.
         let remaining: Double
+        let level: Bucket.Level
+
+        init(bucket: Bucket) {
+            remaining = bucket.remaining
+            level = bucket.level
+        }
     }
 
     private static let segmentCount = 7
@@ -38,7 +44,7 @@ enum GaugeRenderer {
         let image = NSImage(size: NSSize(width: ceil(totalWidth), height: imageHeight), flipped: false) { _ in
             var cursor: CGFloat = 0
             for (index, item) in items.enumerated() {
-                let color = tint(remaining: item.remaining, dimmed: dimmed)
+                let color = tint(level: item.level, dimmed: dimmed)
                 drawGauge(remaining: item.remaining, at: cursor, color: color, dimmed: dimmed)
                 cursor += gaugeWidth + labelGap
 
@@ -71,12 +77,12 @@ enum GaugeRenderer {
         }
     }
 
-    private static func tint(remaining: Double, dimmed: Bool) -> NSColor {
+    private static func tint(level: Bucket.Level, dimmed: Bool) -> NSColor {
         let base: NSColor
-        switch remaining {
-        case ..<10: base = .systemRed
-        case ..<25: base = .systemOrange
-        default: base = .labelColor
+        switch level {
+        case .critical: base = .systemRed
+        case .warning: base = .systemOrange
+        case .normal: base = .labelColor
         }
         return dimmed ? base.withAlphaComponent(0.45) : base
     }

@@ -10,83 +10,139 @@ struct Bucket: Identifiable, Equatable {
     /// Percentage of the window consumed, 0–100.
     let utilization: Double
     let resetsAt: Date?
+    /// The server's own read — `normal`, `warning` or `critical`. Absent on fallback windows.
+    let severity: String?
     let role: Role
 
     /// Percentage of the window still available, 0–100.
     var remaining: Double { max(0, min(100, 100 - utilization)) }
     var usedFraction: Double { max(0, min(1, utilization / 100)) }
+
+    /// Prefers the server's severity, falling back to thresholds on what is left.
+    var level: Level {
+        switch severity {
+        case "critical": return .critical
+        case "warning": return .warning
+        case "normal": return .normal
+        default:
+            if remaining < 10 { return .critical }
+            if remaining < 25 { return .warning }
+            return .normal
+        }
+    }
+
+    enum Level { case normal, warning, critical }
 }
 
 enum UsageModel {
-    /// Flattens the response into an ordered bucket list: session, weekly (all models),
-    /// weekly Fable, then everything else the account happens to have.
+    /// Flattens the response into an ordered bucket list: session, weekly (all models), weekly
+    /// Fable, then everything else the account happens to have.
+    ///
+    /// `limits[]` is the authoritative source — it carries every window, including the
+    /// per-model weekly ones, with severity attached. The top-level `five_hour` / `seven_day`
+    /// keys duplicate the first two and are used only if `limits[]` is missing.
     static func buckets(from response: UsageResponse) -> [Bucket] {
         var result: [Bucket] = []
-        var seenTitles = Set<String>()
+        var seen = Set<String>()
 
-        func append(
-            _ window: UsageWindow?,
+        func add(
             id: String,
             title: String,
+            percent: Double?,
+            resetsAt: String?,
+            severity: String?,
             role: Bucket.Role
         ) {
-            guard let window, let utilization = window.utilization else { return }
-            guard seenTitles.insert(title).inserted else { return }
+            guard let percent, seen.insert(id).inserted else { return }
             result.append(
                 Bucket(
                     id: id,
                     title: title,
-                    utilization: utilization,
-                    resetsAt: window.resets_at.map { Date(timeIntervalSince1970: $0) },
+                    utilization: percent,
+                    resetsAt: ISODate.parse(resetsAt),
+                    severity: severity,
                     role: role
                 )
             )
         }
 
-        append(response.five_hour, id: "five_hour", title: "Current session", role: .session)
-        append(response.seven_day, id: "seven_day", title: "Current week (all models)", role: .weeklyAll)
+        let entries = response.limits ?? []
+        let scoped = entries.filter { $0.kind == "weekly_scoped" && $0.scope?.model?.display_name != nil }
 
-        // Per-model weekly windows. This is where the Fable bucket lives.
-        let scoped = (response.limits ?? []).filter { $0.kind == "weekly_scoped" }
-        let fableScoped = scoped.filter { isFable($0.scope?.model?.display_name) }
-        let otherScoped = scoped.filter { !isFable($0.scope?.model?.display_name) }
+        if let session = entries.first(where: { $0.kind == "session" }) {
+            add(
+                id: "session",
+                title: "Current session",
+                percent: session.percent,
+                resetsAt: session.resets_at,
+                severity: session.severity,
+                role: .session
+            )
+        }
+        add(
+            id: "session",
+            title: "Current session",
+            percent: response.five_hour?.utilization,
+            resetsAt: response.five_hour?.resets_at,
+            severity: nil,
+            role: .session
+        )
 
-        for entry in fableScoped + otherScoped {
-            guard
-                let name = entry.scope?.model?.display_name,
-                let percent = entry.percent
-            else { continue }
-            append(
-                UsageWindow(utilization: percent, resets_at: entry.resets_at),
+        if let weekly = entries.first(where: { $0.kind == "weekly_all" }) {
+            add(
+                id: "weekly_all",
+                title: "Current week (all models)",
+                percent: weekly.percent,
+                resetsAt: weekly.resets_at,
+                severity: weekly.severity,
+                role: .weeklyAll
+            )
+        }
+        add(
+            id: "weekly_all",
+            title: "Current week (all models)",
+            percent: response.seven_day?.utilization,
+            resetsAt: response.seven_day?.resets_at,
+            severity: nil,
+            role: .weeklyAll
+        )
+
+        // Fable first, then any other per-model weekly window the plan happens to expose.
+        // Partitioned rather than sorted: `isFable` is not a strict weak ordering.
+        for entry in scoped.filter(isFable) + scoped.filter({ !isFable($0) }) {
+            guard let name = entry.scope?.model?.display_name else { continue }
+            add(
                 id: "scoped:\(name)",
                 title: "Current week (\(name))",
-                role: isFable(name) ? .fable : .other
+                percent: entry.percent,
+                resetsAt: entry.resets_at,
+                severity: entry.severity,
+                role: isFable(entry) ? .fable : .other
             )
         }
 
-        // Only used when the account reports Fable through the overage key instead of limits[].
-        append(
-            response.seven_day_overage_included,
-            id: "seven_day_overage_included",
-            title: "Current week (Fable 5)",
-            role: result.contains { $0.role == .fable } ? .other : .fable
-        )
-
-        append(response.seven_day_opus, id: "seven_day_opus", title: "Current week (Opus)", role: .other)
-        append(response.seven_day_sonnet, id: "seven_day_sonnet", title: "Current week (Sonnet)", role: .other)
-        append(
-            response.seven_day_oauth_apps,
-            id: "seven_day_oauth_apps",
-            title: "Current week (OAuth apps)",
+        add(
+            id: "seven_day_opus",
+            title: "Current week (Opus)",
+            percent: response.seven_day_opus?.utilization,
+            resetsAt: response.seven_day_opus?.resets_at,
+            severity: nil,
             role: .other
         )
-        append(response.cinder_cove, id: "cinder_cove", title: "Additional window", role: .other)
+        add(
+            id: "seven_day_sonnet",
+            title: "Current week (Sonnet)",
+            percent: response.seven_day_sonnet?.utilization,
+            resetsAt: response.seven_day_sonnet?.resets_at,
+            severity: nil,
+            role: .other
+        )
 
         return result
     }
 
-    private static func isFable(_ displayName: String?) -> Bool {
-        displayName?.lowercased().contains("fable") ?? false
+    private static func isFable(_ entry: LimitEntry) -> Bool {
+        entry.scope?.model?.display_name?.lowercased().contains("fable") ?? false
     }
 }
 

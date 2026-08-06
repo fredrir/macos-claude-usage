@@ -62,7 +62,7 @@ enum Screenshots {
     private static func menuBar(_ appearance: Appearance) -> NSBitmapImageRep {
         let items = [Fixture.buckets.session, Fixture.buckets.fable]
             .compactMap { $0 }
-            .map { GaugeRenderer.Item(remaining: $0.remaining) }
+            .map { GaugeRenderer.Item(bucket: $0) }
         let gauge = GaugeRenderer.image(for: items)
         let padding = NSSize(width: 14, height: 7)
         let size = NSSize(
@@ -205,17 +205,18 @@ private enum Fixture {
     }()
 
     /// Reset times are absolute, matching the pinned clock in `Screenshots`: the session lands
-    /// 2h 41m out, the weekly windows on Monday 09:00.
+    /// 2h 41m out, the weekly windows on Monday 09:00. Timestamps are ISO 8601 strings because
+    /// that is what the live endpoint emits.
     private static let json = """
     {
-      "five_hour": { "utilization": 42, "resets_at": 1768497180 },
-      "seven_day": { "utilization": 63, "resets_at": 1768813200 },
-      "seven_day_opus": { "utilization": 88, "resets_at": 1768813200 },
+      "five_hour": { "utilization": 42, "resets_at": "2026-01-15T17:13:00+00:00" },
+      "seven_day": { "utilization": 63, "resets_at": "2026-01-19T09:00:00+00:00" },
+      "seven_day_opus": { "utilization": 88, "resets_at": "2026-01-19T09:00:00+00:00" },
       "limits": [
         {
           "kind": "weekly_scoped",
           "percent": 18,
-          "resets_at": 1768813200,
+          "resets_at": "2026-01-19T09:00:00+00:00",
           "scope": { "model": { "display_name": "Fable 5" } }
         }
       ]

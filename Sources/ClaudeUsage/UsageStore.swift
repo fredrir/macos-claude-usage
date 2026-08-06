@@ -117,6 +117,8 @@ final class UsageStore: ObservableObject {
         isFetching = true
         defer { isFetching = false }
 
+        Log.write("fetch: requesting (\(manual ? "manual" : "scheduled"))")
+
         do {
             let (response, raw) = try await UsageAPI.fetch()
             apply(response: response, fetchedAt: Date())
@@ -125,6 +127,9 @@ final class UsageStore: ObservableObject {
             errorBackoff = 60
             rateLimitedUntil = nil
             nextAllowedFetch = Date().addingTimeInterval(Self.minimumSpacing)
+            Log.write("fetch: 200, \(buckets.count) window(s) — " + buckets
+                .map { "\($0.title) \(Int($0.remaining.rounded()))% left" }
+                .joined(separator: ", "))
         } catch let error as UsageAPIError {
             switch error {
             case .rateLimited(let retryAfter):
@@ -132,26 +137,38 @@ final class UsageStore: ObservableObject {
                 nextAllowedFetch = until
                 rateLimitedUntil = until
                 status = .rateLimited(until: until)
+                Log.write("fetch: 429, retry-after \(Int(retryAfter))s — next attempt \(Self.clockText(until))")
             case .unauthorized:
                 status = .authExpired("Sign-in expired — run `claude` once to refresh.")
                 nextAllowedFetch = Date().addingTimeInterval(120)
-            case .http:
+                Log.write("fetch: 401/403 after refresh attempt")
+            case .http, .undecodable:
                 failed(error.localizedDescription)
             }
         } catch let error as AuthError {
             status = .authExpired(error.localizedDescription)
             nextAllowedFetch = Date().addingTimeInterval(120)
+            Log.write("fetch: auth error — \(error.localizedDescription)")
         } catch let error as KeychainError {
             status = .authExpired(error.localizedDescription)
             nextAllowedFetch = Date().addingTimeInterval(120)
+            Log.write("fetch: keychain error — \(error.localizedDescription)")
         } catch {
             failed(error.localizedDescription)
         }
     }
 
+    private static func clockText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
     private func failed(_ message: String) {
         status = .failed(message)
         nextAllowedFetch = Date().addingTimeInterval(errorBackoff)
+        Log.write("fetch: failed — \(message); backing off \(Int(errorBackoff))s")
         errorBackoff = min(errorBackoff * 2, 3600)
     }
 

@@ -114,10 +114,10 @@ private struct BucketRow: View {
     }
 
     private var tint: Color {
-        switch bucket.remaining {
-        case ..<10: return Color(nsColor: .systemRed)
-        case ..<25: return Color(nsColor: .systemOrange)
-        default: return Color(nsColor: .systemGreen)
+        switch bucket.level {
+        case .critical: return Color(nsColor: .systemRed)
+        case .warning: return Color(nsColor: .systemOrange)
+        case .normal: return Color(nsColor: .systemGreen)
         }
     }
 }
