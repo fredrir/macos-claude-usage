@@ -1,0 +1,78 @@
+name: ClaudeUsage
+
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+  minimumXcodeGenVersion: "2.45.4"
+  xcodeVersion: "16.0"
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_VERSION: "6.0"
+    ENABLE_HARDENED_RUNTIME: true
+
+targets:
+  UsageCore:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/UsageCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.UsageCore
+        PRODUCT_NAME: UsageCore
+        GENERATE_INFOPLIST_FILE: true
+
+  ClaudeUsage:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/ClaudeUsage
+    dependencies:
+      - target: UsageCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.ClaudeUsage
+        PRODUCT_NAME: ClaudeUsage
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_ENTITLEMENTS: Configuration/ClaudeUsage.release.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: true
+    scheme:
+      gatherCoverageData: true
+      testTargets:
+        - ClaudeUsageTests
+        - UsageCoreTests
+
+  ClaudeUsageTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/ClaudeUsageTests
+        optional: true
+    dependencies:
+      - target: ClaudeUsage
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.ClaudeUsageTests
+        GENERATE_INFOPLIST_FILE: true
+
+  UsageCoreTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/UsageCoreTests
+        optional: true
+    dependencies:
+      - target: UsageCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.UsageCoreTests
+        GENERATE_INFOPLIST_FILE: true

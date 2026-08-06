@@ -1,4 +1,5 @@
 import AppKit
+import UsageCore
 
 /// Draws the collapsed menu bar content: one segmented gauge plus a percentage per window.
 ///
@@ -9,9 +10,9 @@ enum GaugeRenderer {
     struct Item {
         /// Percentage of the window still available, 0–100.
         let remaining: Double
-        let level: Bucket.Level
+        let level: UsageLevel
 
-        init(bucket: Bucket) {
+        init(bucket: UsageBucket) {
             remaining = bucket.remaining
             level = bucket.level
         }
@@ -63,7 +64,8 @@ enum GaugeRenderer {
     }
 
     private static func drawGauge(remaining: Double, at originX: CGFloat, color: NSColor, dimmed: Bool) {
-        let filled = remaining <= 0
+        let filled =
+            remaining <= 0
             ? 0
             : max(1, min(segmentCount, Int((remaining / 100 * Double(segmentCount)).rounded())))
         let empty = NSColor.tertiaryLabelColor.withAlphaComponent(dimmed ? 0.25 : 0.45)
@@ -77,7 +79,7 @@ enum GaugeRenderer {
         }
     }
 
-    private static func tint(level: Bucket.Level, dimmed: Bool) -> NSColor {
+    private static func tint(level: UsageLevel, dimmed: Bool) -> NSColor {
         let base: NSColor
         switch level {
         case .critical: base = .systemRed

@@ -11,6 +11,7 @@ final class StatusItemController {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let store: UsageStore
+    private let launchAtLogin = LaunchAtLoginModel()
     private var cancellables = Set<AnyCancellable>()
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -19,7 +20,9 @@ final class StatusItemController {
 
         popover.behavior = .transient
         popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: DropdownView(store: store))
+        popover.contentViewController = NSHostingController(
+            rootView: DropdownView(store: store, launchAtLogin: launchAtLogin)
+        )
 
         if let button = statusItem.button {
             button.target = self
@@ -45,8 +48,11 @@ final class StatusItemController {
             .compactMap { $0 }
             .map { GaugeRenderer.Item(bucket: $0) }
 
+        let tooltip = tooltip
         statusItem.button?.image = GaugeRenderer.image(for: items, dimmed: store.isStale)
         statusItem.button?.toolTip = tooltip
+        statusItem.button?.setAccessibilityLabel("Claude Usage")
+        statusItem.button?.setAccessibilityValue(tooltip)
     }
 
     private var tooltip: String {

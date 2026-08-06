@@ -1,4 +1,5 @@
 import AppKit
+import UsageCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -21,7 +22,6 @@ enum ClaudeUsageApp {
     static func main() {
         if CommandLine.arguments.contains("--dump") {
             dumpBuckets()
-            return
         }
 
         if let index = CommandLine.arguments.firstIndex(of: "--screenshot") {
@@ -43,13 +43,11 @@ enum ClaudeUsageApp {
 
     /// Prints the resolved windows and exits — lets the data path be checked against
     /// `/usage` without reading pixels out of the menu bar.
-    private static func dumpBuckets() {
-        let semaphore = DispatchSemaphore(value: 0)
-
-        Task.detached {
+    private static func dumpBuckets() -> Never {
+        Task {
             do {
-                let (response, _) = try await UsageAPI.fetch()
-                let buckets = UsageModel.buckets(from: response)
+                let result = try await AnthropicUsageClient().fetch()
+                let buckets = UsageResponseMapper().buckets(from: result.response)
                 if buckets.isEmpty {
                     print("No populated limit windows in the response.")
                 }
@@ -57,15 +55,17 @@ enum ClaudeUsageApp {
                     let title = bucket.title.padding(toLength: 30, withPad: " ", startingAt: 0)
                     let used = String(format: "%5.1f%% used", bucket.utilization)
                     let left = String(format: "%5.1f%% left", bucket.remaining)
-                    let reset = ResetFormatter.text(for: bucket.resetsAt) ?? "no reset time"
+                    let reset =
+                        ResetFormatter.text(for: bucket.resetsAt, relativeTo: .now)
+                        ?? "no reset time"
                     print("\(title)  \(used)  \(left)   \(reset)")
                 }
             } catch {
                 print("error: \(error.localizedDescription)")
+                exit(1)
             }
-            semaphore.signal()
+            exit(0)
         }
-
-        semaphore.wait()
+        dispatchMain()
     }
 }

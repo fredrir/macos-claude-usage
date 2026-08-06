@@ -9,7 +9,7 @@ fi
 cd "$(git rev-parse --show-toplevel)"
 
 if ! git diff --cached --name-only --diff-filter=ACMR \
-  | grep -qE '^(Sources/ClaudeUsage/.+\.swift|Package\.swift|screenshots\.sh)$'; then
+  | grep -qE '^(Sources/(ClaudeUsage|UsageCore)/.+\.swift|Package\.swift|screenshots\.sh)$'; then
   exit 0
 fi
 

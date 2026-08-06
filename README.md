@@ -56,8 +56,9 @@ Two traps, both found the hard way against the live endpoint:
 - `resets_at` is an **ISO 8601 string here**, even though the `anthropic-ratelimit-unified-*`
   response headers express the same concept as epoch seconds. Decoding it as a number fails
   the whole payload.
-- It carries microsecond precision, which `ISO8601DateFormatter` will not parse even with
-  `.withFractionalSeconds`. The fraction is stripped before parsing.
+- It can carry microsecond precision. The app uses Swift's value-typed ISO 8601 parse strategy,
+  which accepts whole-second, millisecond, and microsecond timestamps without shared mutable
+  formatters.
 
 A window whose percentage is `null` is hidden rather than drawn as 0%, which is why a plan
 with no separate Opus window shows three rows rather than five.
@@ -80,6 +81,8 @@ So the app is deliberately conservative:
 - exponential backoff, capped at an hour, for network and 5xx errors
 - keeps the last good payload in `~/Library/Application Support/ClaudeUsage/usage.json`
   so a restart paints immediately; anything older than an hour renders dimmed
+- persists the request schedule separately in `polling-state.json` *before* starting network
+  work, so quitting or relaunching cannot bypass the 15-minute floor or a server penalty
 
 If you ever see it stuck on "Rate limited", leave it alone — it is already waiting exactly as
 long as the server asked, and poking it makes the wait longer.
@@ -97,7 +100,15 @@ break that session's next refresh. The app therefore does the least it can get a
 2. re-reads the Keychain under a lock first — if Claude Code already refreshed, that token is
    used and no rotation happens
 3. merges into the existing JSON so `scopes` / `subscriptionType` / `rateLimitTier` survive
-4. serialises with a cross-process `flock` so two copies cannot refresh at once
+4. updates the exact Keychain item by persistent reference rather than every item with the same
+   service name
+5. passes the rejected access token through the 401 recovery path, so a token replaced while
+   waiting is used rather than refreshed a second time
+6. serialises cooperating app copies with a cancellation-aware cross-process `flock`
+
+The lock is advisory and Claude Code does not participate in it. Re-reading the exact Keychain
+item immediately before writing narrows the remaining race with non-cooperating processes, but
+cannot make that external compare-and-write atomic.
 
 If refresh fails the last good numbers stay on screen, dimmed, with a note to run `claude`
 once.
@@ -105,36 +116,57 @@ once.
 ## Development
 
 ```sh
-swift build -c release --product ClaudeUsage
+swift build
+swift test
 
 # print resolved windows and exit — handy for checking against /usage
-./.build/release/ClaudeUsage --dump
+./.build/debug/ClaudeUsage --dump
 
 # drive the UI from a JSON file instead of the live endpoint
-CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/release/ClaudeUsage
+CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/debug/ClaudeUsage
 
 # what the running app actually did — every fetch, outcome and wait
 tail -f "$HOME/Library/Application Support/ClaudeUsage/usage.log"
 ```
+
+The package and all targets compile in Swift 6 language mode. For XcodeGen setup, local checks,
+and CI conventions, see [Development workflow](docs/development.md). For signing, sandboxing,
+and notarization decisions, see
+[Security and distribution decisions](docs/security-and-distribution.md).
 
 The log matters more than it looks: the rate-limit windows are long enough that "waiting
 exactly as instructed" and "silently wedged" are indistinguishable from the menu bar. It also
 names the offending field on a decode failure rather than reporting Foundation's opaque *"the
 data couldn't be read because it isn't in the correct format"*.
 
-| File | Role |
-| --- | --- |
-| `Keychain.swift` | reads/writes the `Claude Code-credentials` item |
-| `Log.swift` | append-only log of fetches, outcomes and waits |
-| `Clock.swift` | "now", with a seam so screenshots can pin it |
-| `OAuth.swift` | credential model, refresh flow, cross-process lock |
-| `UsageAPI.swift` | endpoint call, decoding, 429/401 handling |
-| `UsageModel.swift` | normalises the response into an ordered `[Bucket]` |
-| `UsageStore.swift` | polling, backoff, disk cache, status |
-| `GaugeRenderer.swift` | draws the menu bar image |
-| `StatusItemController.swift` | `NSStatusItem` + popover wiring |
-| `DropdownView.swift` | SwiftUI dropdown |
-| `Screenshots.swift` | offscreen render of the README images |
+## Architecture
+
+The repository follows a small feature-first layout: domain and policy code stays independent,
+while macOS frameworks, persistence, authentication, and UI remain at the application edge.
+
+```text
+Sources/
+├── UsageCore/
+│   ├── Domain/              normalized usage values
+│   ├── API/                 wire DTOs and domain mapping
+│   ├── Polling/             pure persisted scheduling policy
+│   └── Support/             time and ISO 8601 seams
+└── ClaudeUsage/
+    ├── App/                 composition root and process entry point
+    ├── Features/Usage/
+    │   ├── Data/            repository actor and persistence workflow
+    │   └── Presentation/    observable state, formatting, and SwiftUI
+    ├── Infrastructure/      API, OAuth, Keychain, logging, and app paths
+    ├── Platform/            menu bar and launch-at-login adapters
+    └── DeveloperTools/      deterministic screenshot harness
+Tests/
+├── UsageCoreTests/          domain, decoding, mapping, and polling policy
+└── ClaudeUsageTests/        repository restart and infrastructure integration
+```
+
+`UsageCore` has no AppKit or SwiftUI dependency and is the default home for deterministic
+business rules. `ClaudeUsage` composes those values with system adapters; `UsageStore` only owns
+presentation state and scheduling triggers, while `UsageRepository` owns network and disk work.
 
 ## Screenshots
 
@@ -146,7 +178,7 @@ git config core.hooksPath .githooks
 ```
 
 `.githooks/pre-commit` then re-renders and stages `docs/screenshots/` whenever the commit
-touches `Sources/ClaudeUsage/*.swift`, `Package.swift` or `screenshots.sh`, and does nothing
+touches Swift sources, `Package.swift` or `screenshots.sh`, and does nothing
 at all otherwise — a README-only commit does not pay for a build. Bypass it with
 `SKIP_SCREENSHOTS=1 git commit` or `git commit --no-verify`.
 
@@ -171,7 +203,7 @@ changed. Two things make that true:
 
 - a fixture compiled into `Screenshots.swift` rather than live account data, so the numbers in
   the README are not anyone's real usage
-- a pinned clock (`AppClock.fixedNow`) and a pinned `UTC` timezone, so "Resets in 2h 41m",
+- an injected fixed `DateProvider` and a pinned `UTC` timezone, so "Resets in 2h 41m",
   "Resets Mon 09:00" and "Updated 14:27" are fixed strings instead of whatever the wall clock
   said at render time
 

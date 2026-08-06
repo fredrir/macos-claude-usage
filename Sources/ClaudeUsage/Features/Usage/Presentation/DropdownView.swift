@@ -1,9 +1,9 @@
 import SwiftUI
+import UsageCore
 
 struct DropdownView: View {
     @ObservedObject var store: UsageStore
-    @State private var launchAtLogin = LaunchAtLogin.isEnabled
-    @State private var launchAtLoginError: String?
+    @ObservedObject var launchAtLogin: LaunchAtLoginModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -12,7 +12,7 @@ struct DropdownView: View {
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(store.buckets) { bucket in
-                        BucketRow(bucket: bucket, dimmed: store.isStale)
+                        BucketRow(bucket: bucket, dimmed: store.isStale, now: store.now)
                     }
                 }
                 .padding(16)
@@ -22,6 +22,7 @@ struct DropdownView: View {
             footer
         }
         .frame(width: 292)
+        .onAppear { launchAtLogin.refresh() }
     }
 
     /// The reason there is nothing to show lives in the footer's status line, so this stays a
@@ -53,21 +54,18 @@ struct DropdownView: View {
             }
             .font(.system(size: 11))
 
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .font(.system(size: 11))
-                .toggleStyle(.checkbox)
-                .onChange(of: launchAtLogin) { _, newValue in
-                    do {
-                        try LaunchAtLogin.set(newValue)
-                        launchAtLoginError = nil
-                    } catch {
-                        launchAtLoginError = error.localizedDescription
-                        launchAtLogin = LaunchAtLogin.isEnabled
-                    }
-                }
+            Toggle(
+                "Launch at login",
+                isOn: Binding(
+                    get: { launchAtLogin.isEnabled },
+                    set: { launchAtLogin.setEnabled($0) }
+                )
+            )
+            .font(.system(size: 11))
+            .toggleStyle(.checkbox)
 
-            if let launchAtLoginError {
-                Text(launchAtLoginError)
+            if let errorMessage = launchAtLogin.errorMessage {
+                Text(errorMessage)
                     .font(.system(size: 10))
                     .foregroundStyle(Color(nsColor: .systemRed))
                     .fixedSize(horizontal: false, vertical: true)
@@ -87,8 +85,9 @@ struct DropdownView: View {
 }
 
 private struct BucketRow: View {
-    let bucket: Bucket
+    let bucket: UsageBucket
     let dimmed: Bool
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -104,7 +103,7 @@ private struct BucketRow: View {
 
             GaugeBar(fraction: bucket.usedFraction, tint: tint)
 
-            if let reset = ResetFormatter.text(for: bucket.resetsAt) {
+            if let reset = ResetFormatter.text(for: bucket.resetsAt, relativeTo: now) {
                 Text(reset)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
@@ -137,58 +136,5 @@ private struct GaugeBar: View {
             }
         }
         .frame(height: 6)
-    }
-}
-
-extension UsageStore {
-    /// Footer text: the freshness line normally, the reason we are not fresh otherwise.
-    var statusMessage: String? {
-        switch status {
-        case .loading:
-            return lastUpdated == nil ? "Fetching…" : updatedText
-        case .ok:
-            return updatedText
-        case .throttled(let until):
-            guard let minutes = Self.minutesUntil(until) else { return updatedText }
-            let suffix = updatedText.map { "\($0) · " } ?? ""
-            return "\(suffix)next check in \(minutes)m"
-        case .rateLimited(let until):
-            let suffix = updatedText.map { " · \($0)" } ?? ""
-            guard let minutes = Self.minutesUntil(until) else { return "Retrying…\(suffix)" }
-            return "Rate limited — retrying in \(minutes)m\(suffix)"
-        case .authExpired(let message):
-            return message
-        case .failed(let message):
-            return message
-        }
-    }
-
-    var statusIcon: String {
-        switch status {
-        case .ok, .loading, .throttled: return isStale ? "clock" : "checkmark.circle"
-        case .rateLimited: return "hourglass"
-        case .authExpired: return "key"
-        case .failed: return "exclamationmark.triangle"
-        }
-    }
-
-    var statusIsWarning: Bool {
-        switch status {
-        case .ok, .loading, .throttled: return isStale
-        case .rateLimited, .authExpired, .failed: return true
-        }
-    }
-
-    static func minutesUntil(_ date: Date) -> Int? {
-        let seconds = date.timeIntervalSince(AppClock.now)
-        guard seconds > 0 else { return nil }
-        return max(1, Int((seconds / 60).rounded(.up)))
-    }
-
-    private var updatedText: String? {
-        guard let lastUpdated else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return "Updated \(formatter.string(from: lastUpdated))"
     }
 }

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Swift 6 and repository checks
+    # Screenshots are rendered with AppKit/SwiftUI, so pin the OS generation
+    # used to produce the committed reference images instead of using -latest.
+    runs-on: macos-26
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build in Swift 6 mode
+        run: swift build -Xswiftc -swift-version -Xswiftc 6
+
+      - name: Test in Swift 6 mode
+        run: swift test -Xswiftc -swift-version -Xswiftc 6
+
+      - name: Validate generated Xcode application
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild \
+            -project ClaudeUsage.xcodeproj \
+            -scheme ClaudeUsage \
+            -configuration Release \
+            -derivedDataPath "${RUNNER_TEMP}/ClaudeUsageDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Lint Swift formatting
+        run: |
+          format_paths=(Package.swift Sources)
+          if [[ -d Tests ]]; then
+            format_paths+=(Tests)
+          fi
+          swift format lint \
+            --configuration .swift-format \
+            --recursive \
+            --parallel \
+            --strict \
+            "${format_paths[@]}"
+
+      - name: Validate property lists
+        run: |
+          plutil -lint Resources/Info.plist
+          plutil -lint Configuration/ClaudeUsage.release.entitlements
+
+      - name: Validate shell scripts
+        run: bash -n build.sh screenshots.sh Scripts/release.sh
+
+      # This command uses the app's pinned fixture and clock. It does not read
+      # Keychain credentials or call the live usage API.
+      - name: Check deterministic screenshots
+        run: ./screenshots.sh --check

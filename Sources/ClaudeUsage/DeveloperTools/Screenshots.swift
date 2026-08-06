@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UsageCore
 
 /// `--screenshot <dir>`: renders the README images from the real views, offscreen.
 ///
@@ -14,7 +15,6 @@ enum Screenshots {
 
     static func write(into directory: URL) throws {
         NSTimeZone.default = TimeZone(identifier: "UTC")!
-        AppClock.fixedNow = now
 
         // No dock icon, no menu bar item — but AppKit still needs to be woken up before it will
         // lay out and draw a window.
@@ -44,8 +44,15 @@ enum Screenshots {
     /// The popover, captured from a real `NSHostingView` so the AppKit-backed controls (picker,
     /// checkbox, links) come out as the user sees them.
     private static func dropdown(_ appearance: Appearance) -> NSBitmapImageRep {
-        let store = UsageStore(fixture: Fixture.buckets, lastUpdated: now.addingTimeInterval(-260))
-        let hosting = NSHostingView(rootView: DropdownView(store: store))
+        let store = UsageStore(
+            fixture: Fixture.buckets,
+            lastUpdated: now.addingTimeInterval(-260),
+            clock: FixedDateProvider(now: now)
+        )
+        let launchAtLogin = LaunchAtLoginModel(service: FixedLaunchAtLoginService(isEnabled: false))
+        let hosting = NSHostingView(
+            rootView: DropdownView(store: store, launchAtLogin: launchAtLogin)
+        )
         hosting.appearance = appearance.nsAppearance
         hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
 
@@ -75,7 +82,8 @@ enum Screenshots {
             NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 6, yRadius: 6).fill()
             // `NSImage`'s drawing handler runs here, inside the appearance, so its dynamic colours
             // resolve for the appearance being rendered rather than the process default.
-            gauge.draw(at: NSPoint(x: padding.width, y: padding.height), from: .zero, operation: .sourceOver, fraction: 1)
+            gauge.draw(
+                at: NSPoint(x: padding.width, y: padding.height), from: .zero, operation: .sourceOver, fraction: 1)
         }
     }
 
@@ -199,27 +207,39 @@ private final class BackdropView: NSView {
 /// The numbers the screenshots show: a plausible mid-week account with one window running low,
 /// so the green/orange tinting is visible rather than described.
 private enum Fixture {
-    static let buckets: [Bucket] = {
-        let response = try! JSONDecoder().decode(UsageResponse.self, from: Data(json.utf8))
-        return UsageModel.buckets(from: response)
+    static let buckets: [UsageBucket] = {
+        do {
+            let response = try JSONDecoder().decode(
+                UsageResponseDTO.self,
+                from: Data(json.utf8)
+            )
+            return UsageResponseMapper().buckets(from: response)
+        } catch {
+            assertionFailure("Invalid screenshot fixture: \(error)")
+            return []
+        }
     }()
 
     /// Reset times are absolute, matching the pinned clock in `Screenshots`: the session lands
     /// 2h 41m out, the weekly windows on Monday 09:00. Timestamps are ISO 8601 strings because
     /// that is what the live endpoint emits.
     private static let json = """
-    {
-      "five_hour": { "utilization": 42, "resets_at": "2026-01-15T17:13:00+00:00" },
-      "seven_day": { "utilization": 63, "resets_at": "2026-01-19T09:00:00+00:00" },
-      "seven_day_opus": { "utilization": 88, "resets_at": "2026-01-19T09:00:00+00:00" },
-      "limits": [
         {
-          "kind": "weekly_scoped",
-          "percent": 18,
-          "resets_at": "2026-01-19T09:00:00+00:00",
-          "scope": { "model": { "display_name": "Fable 5" } }
+          "five_hour": { "utilization": 42, "resets_at": "2026-01-15T17:13:00+00:00" },
+          "seven_day": { "utilization": 63, "resets_at": "2026-01-19T09:00:00+00:00" },
+          "seven_day_opus": { "utilization": 88, "resets_at": "2026-01-19T09:00:00+00:00" },
+          "limits": [
+            {
+              "kind": "weekly_scoped",
+              "percent": 18,
+              "resets_at": "2026-01-19T09:00:00+00:00",
+              "scope": { "model": { "display_name": "Fable 5" } }
+            }
+          ]
         }
-      ]
-    }
-    """
+        """
+}
+
+private struct FixedDateProvider: DateProvider {
+    let now: Date
 }

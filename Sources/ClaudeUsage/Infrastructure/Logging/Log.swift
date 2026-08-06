@@ -11,20 +11,16 @@ enum Log {
     private static let logger = Logger(subsystem: subsystem, category: "usage")
     private static let queue = DispatchQueue(label: "\(subsystem).log")
 
-    private static let timestamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter
-    }()
-
     static var fileURL: URL { AppPaths.supportDirectory.appendingPathComponent("usage.log") }
 
     static func write(_ message: String) {
         logger.log("\(message, privacy: .public)")
 
         queue.async {
-            let line = "\(timestamp.string(from: Date()))  \(message)\n"
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            let line = "\(formatter.string(from: Date()))  \(message)\n"
             guard let data = line.data(using: .utf8) else { return }
 
             if let handle = try? FileHandle(forWritingTo: fileURL) {
