@@ -1,49 +1,39 @@
 import AppKit
+import SwiftUI
 import UsageCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let store = UsageStore()
-    private var controller: StatusItemController?
+    fileprivate let store = UsageStore()
+    fileprivate let launchAtLogin = LaunchAtLoginModel()
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        controller = StatusItemController(store: store)
-        store.start()
-    }
-}
-
-@main
-@MainActor
-enum ClaudeUsageApp {
-    /// `NSApplication.delegate` is unowned, so the delegate is held here for the process
-    /// lifetime rather than as a local that the optimiser could release.
-    private static let delegate = AppDelegate()
-
-    static func main() {
         if CommandLine.arguments.contains("--dump") {
             dumpBuckets()
+            return
         }
 
         if let index = CommandLine.arguments.firstIndex(of: "--screenshot") {
             let path = CommandLine.arguments.dropFirst(index + 1).first ?? "docs/screenshots"
             do {
                 try Screenshots.write(into: URL(fileURLWithPath: path))
+                exit(0)
             } catch {
                 print("error: \(error.localizedDescription)")
                 exit(1)
             }
-            return
         }
 
-        let application = NSApplication.shared
-        application.delegate = delegate
-        application.setActivationPolicy(.accessory)
-        application.run()
+        store.start()
     }
 
     /// Prints the resolved windows and exits — lets the data path be checked against
     /// `/usage` without reading pixels out of the menu bar.
-    private static func dumpBuckets() -> Never {
+    private func dumpBuckets() {
         Task {
             do {
                 let result = try await AnthropicUsageClient().fetch()
@@ -66,6 +56,77 @@ enum ClaudeUsageApp {
             }
             exit(0)
         }
-        dispatchMain()
+    }
+}
+
+@main
+struct ClaudeUsageApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+
+    var body: some Scene {
+        MenuBarExtra {
+            MenuBarDropdownContent(
+                store: delegate.store,
+                launchAtLogin: delegate.launchAtLogin
+            )
+        } label: {
+            MenuBarGaugeLabel(store: delegate.store)
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+private struct MenuBarGaugeLabel: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @ObservedObject var store: UsageStore
+
+    var body: some View {
+        Image(nsImage: image)
+            .renderingMode(.original)
+            .help(tooltip)
+            .accessibilityLabel("Claude Usage")
+            .accessibilityValue(tooltip)
+    }
+
+    private var image: NSImage {
+        let items = [store.buckets.session, store.buckets.fable]
+            .compactMap { $0 }
+            .map { GaugeRenderer.Item(bucket: $0) }
+
+        let appearanceName: NSAppearance.Name = switch (colorScheme, colorSchemeContrast) {
+        case (.dark, .increased): .accessibilityHighContrastDarkAqua
+        case (.light, .increased): .accessibilityHighContrastAqua
+        case (.dark, _): .darkAqua
+        case (.light, _): .aqua
+        @unknown default: .aqua
+        }
+        guard let appearance = NSAppearance(named: appearanceName) else {
+            return GaugeRenderer.image(for: items, dimmed: store.isStale)
+        }
+
+        var renderedImage: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            renderedImage = GaugeRenderer.image(for: items, dimmed: store.isStale)
+        }
+        return renderedImage ?? GaugeRenderer.image(for: items, dimmed: store.isStale)
+    }
+
+    private var tooltip: String {
+        var lines = store.buckets.map {
+            "\($0.title): \(Int($0.remaining.rounded()))% left"
+        }
+        if let message = store.statusMessage { lines.append(message) }
+        return lines.isEmpty ? "Claude Usage" : lines.joined(separator: "\n")
+    }
+}
+
+private struct MenuBarDropdownContent: View {
+    @ObservedObject var store: UsageStore
+    @ObservedObject var launchAtLogin: LaunchAtLoginModel
+
+    var body: some View {
+        DropdownView(store: store, launchAtLogin: launchAtLogin)
+            .onAppear { store.refreshIfStale() }
     }
 }

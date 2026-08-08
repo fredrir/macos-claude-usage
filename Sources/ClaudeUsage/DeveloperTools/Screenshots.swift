@@ -41,7 +41,7 @@ enum Screenshots {
 
     // MARK: - The two images
 
-    /// The popover, captured from a real `NSHostingView` so the AppKit-backed controls (picker,
+    /// The dropdown, captured from a real `NSHostingView` so the AppKit-backed controls (picker,
     /// checkbox, links) come out as the user sees them.
     private static func dropdown(_ appearance: Appearance) -> NSBitmapImageRep {
         let store = UsageStore(
@@ -157,7 +157,7 @@ enum Screenshots {
             NSAppearance(named: self == .light ? .aqua : .darkAqua)!
         }
 
-        /// The popover's own material is a behind-window blur, which has nothing behind it
+        /// The menu-bar window's own material is a behind-window blur, which has nothing behind it
         /// offscreen; these are its opaque equivalents.
         var popoverBackground: NSColor {
             self == .light
@@ -183,8 +183,7 @@ enum Screenshots {
     }
 }
 
-/// An opaque, rounded backing for the captured view — the popover's rounded corners without the
-/// popover's arrow.
+/// An opaque, rounded backing for the captured view that approximates the menu-bar window.
 private final class BackdropView: NSView {
     var fill: NSColor = .windowBackgroundColor
     var cornerRadius: CGFloat = 0

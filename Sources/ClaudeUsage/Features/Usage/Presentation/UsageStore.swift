@@ -79,7 +79,7 @@ final class UsageStore: ObservableObject {
         timer?.tolerance = 10
     }
 
-    /// Opening the popover may top up old data, but the repository remains the authority on
+    /// Opening the dropdown may top up old data, but the repository remains the authority on
     /// persisted spacing and server penalties.
     func refreshIfStale() {
         let threshold = max(Self.minimumSpacing, pollInterval / 2)

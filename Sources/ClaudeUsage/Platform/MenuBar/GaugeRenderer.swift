@@ -4,8 +4,8 @@ import UsageCore
 /// Draws the collapsed menu bar content: one segmented gauge plus a percentage per window.
 ///
 /// Colours come from dynamic `NSColor`s so they resolve correctly against whichever appearance
-/// AppKit has current when the image is drawn; `StatusItemController` re-renders on appearance
-/// changes so a light/dark switch never leaves a stale bitmap behind.
+/// AppKit has current when the image is drawn; the SwiftUI menu-bar label re-renders under the
+/// matching appearance so a light/dark switch never leaves a stale bitmap behind.
 enum GaugeRenderer {
     struct Item {
         /// Percentage of the window still available, 0–100.
