@@ -1,8 +1,6 @@
 import AppKit
 import UsageCore
 
-/// Draws the collapsed menu bar content: one segmented gauge plus a percentage per window.
-///
 /// Colours come from dynamic `NSColor`s so they resolve correctly against whichever appearance
 /// AppKit has current when the image is drawn; the SwiftUI menu-bar label re-renders under the
 /// matching appearance so a light/dark switch never leaves a stale bitmap behind.
@@ -19,43 +17,31 @@ enum GaugeRenderer {
     }
 
     private static let segmentCount = 7
-    private static let segmentWidth: CGFloat = 3
-    private static let segmentHeight: CGFloat = 9
-    private static let segmentGap: CGFloat = 1.5
-    private static let segmentRadius: CGFloat = 1.25
-    private static let labelGap: CGFloat = 4
-    private static let groupGap: CGFloat = 9
+    private static let segmentWidth: CGFloat = 9
+    private static let segmentHeight: CGFloat = 1.5
+    private static let segmentGap: CGFloat = 1
+    private static let segmentRadius: CGFloat = 0.75
+    private static let groupGap: CGFloat = 5
     private static let imageHeight: CGFloat = 18
 
     private static var font: NSFont { .systemFont(ofSize: 11, weight: .medium) }
 
-    private static var gaugeWidth: CGFloat {
-        CGFloat(segmentCount) * segmentWidth + CGFloat(segmentCount - 1) * segmentGap
+    private static var gaugeHeight: CGFloat {
+        CGFloat(segmentCount) * segmentHeight + CGFloat(segmentCount - 1) * segmentGap
     }
 
     static func image(for items: [Item], dimmed: Bool = false) -> NSImage {
         guard !items.isEmpty else { return placeholder() }
 
-        let labels = items.map { "\(Int($0.remaining.rounded()))%" }
-        let widths = labels.map { label -> CGFloat in
-            gaugeWidth + labelGap + textSize(label).width
-        }
-        let totalWidth = widths.reduce(0, +) + groupGap * CGFloat(items.count - 1)
+        let totalWidth =
+            CGFloat(items.count) * segmentWidth + groupGap * CGFloat(items.count - 1)
 
         let image = NSImage(size: NSSize(width: ceil(totalWidth), height: imageHeight), flipped: false) { _ in
             var cursor: CGFloat = 0
-            for (index, item) in items.enumerated() {
+            for item in items {
                 let color = tint(level: item.level, dimmed: dimmed)
                 drawGauge(remaining: item.remaining, at: cursor, color: color, dimmed: dimmed)
-                cursor += gaugeWidth + labelGap
-
-                let label = labels[index]
-                let size = textSize(label)
-                (label as NSString).draw(
-                    at: NSPoint(x: cursor, y: (imageHeight - size.height) / 2),
-                    withAttributes: [.font: font, .foregroundColor: color]
-                )
-                cursor += size.width + groupGap
+                cursor += segmentWidth + groupGap
             }
             return true
         }
@@ -69,11 +55,11 @@ enum GaugeRenderer {
             ? 0
             : max(1, min(segmentCount, Int((remaining / 100 * Double(segmentCount)).rounded())))
         let empty = NSColor.tertiaryLabelColor.withAlphaComponent(dimmed ? 0.25 : 0.45)
-        let y = (imageHeight - segmentHeight) / 2
+        let originY = (imageHeight - gaugeHeight) / 2
 
         for index in 0..<segmentCount {
-            let x = originX + CGFloat(index) * (segmentWidth + segmentGap)
-            let rect = NSRect(x: x, y: y, width: segmentWidth, height: segmentHeight)
+            let y = originY + CGFloat(index) * (segmentHeight + segmentGap)
+            let rect = NSRect(x: originX, y: y, width: segmentWidth, height: segmentHeight)
             (index < filled ? color : empty).setFill()
             NSBezierPath(roundedRect: rect, xRadius: segmentRadius, yRadius: segmentRadius).fill()
         }

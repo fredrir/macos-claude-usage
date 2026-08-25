@@ -6,7 +6,7 @@ A macOS menu bar app showing how much Claude Code quota you have left.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menubar-dark.png">
-  <img src="docs/screenshots/menubar-light.png" width="155" alt="Menu bar: two segmented gauges reading 58% and 82%">
+  <img src="docs/screenshots/menubar-light.png" width="51" alt="Menu bar: two vertical segmented gauges">
 </picture>
 
 ## Dropdown
