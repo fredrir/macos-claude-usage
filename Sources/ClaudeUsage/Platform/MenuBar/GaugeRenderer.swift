@@ -17,11 +17,11 @@ enum GaugeRenderer {
     }
 
     private static let segmentCount = 7
-    private static let segmentWidth: CGFloat = 9
+    private static let segmentWidth: CGFloat = 6
     private static let segmentHeight: CGFloat = 1.5
     private static let segmentGap: CGFloat = 1
     private static let segmentRadius: CGFloat = 0.75
-    private static let groupGap: CGFloat = 5
+    private static let groupGap: CGFloat = 0
     private static let imageHeight: CGFloat = 18
 
     private static var font: NSFont { .systemFont(ofSize: 11, weight: .medium) }

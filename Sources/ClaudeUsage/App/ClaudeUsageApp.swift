@@ -9,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+        if !Self.isCommandLineInvocation && Self.hasRunningSibling {
+            exit(0)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,7 +31,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        launchAtLogin.synchronizeRegistration()
         store.start()
+    }
+
+    private static var isCommandLineInvocation: Bool {
+        CommandLine.arguments.contains("--dump") || CommandLine.arguments.contains("--screenshot")
+    }
+
+    private static var hasRunningSibling: Bool {
+        guard let identifier = Bundle.main.bundleIdentifier else { return false }
+        let current = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .contains { $0.processIdentifier != current }
     }
 
     /// Prints the resolved windows and exits — lets the data path be checked against

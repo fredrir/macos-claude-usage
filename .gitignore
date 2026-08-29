@@ -1,5 +1,8 @@
 .build/
-.swiftpm/
+.swiftpm/*
+!.swiftpm/xcode/
+.swiftpm/xcode/*
+!.swiftpm/xcode/xcshareddata/
 ClaudeUsage.app/
 dist/
 DerivedData/
@@ -7,4 +10,5 @@ DerivedData/
 *.xcworkspace/
 *.xcuserstate
 xcuserdata/
+*.profraw
 .DS_Store

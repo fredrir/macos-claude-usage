@@ -5,6 +5,11 @@ import ServiceManagement
 protocol LaunchAtLoginServicing {
     var isEnabled: Bool { get }
     func setEnabled(_ enabled: Bool) throws
+    func synchronizeRegistration() throws
+}
+
+extension LaunchAtLoginServicing {
+    func synchronizeRegistration() throws {}
 }
 
 struct SystemLaunchAtLoginService: LaunchAtLoginServicing {
@@ -20,6 +25,11 @@ struct SystemLaunchAtLoginService: LaunchAtLoginServicing {
         } else {
             try SMAppService.mainApp.unregister()
         }
+    }
+
+    func synchronizeRegistration() throws {
+        guard SMAppService.mainApp.status == .enabled else { return }
+        try SMAppService.mainApp.register()
     }
 }
 
@@ -48,6 +58,11 @@ final class LaunchAtLoginModel: ObservableObject {
             isEnabled = service.isEnabled
             errorMessage = error.localizedDescription
         }
+    }
+
+    func synchronizeRegistration() {
+        try? service.synchronizeRegistration()
+        isEnabled = service.isEnabled
     }
 }
 

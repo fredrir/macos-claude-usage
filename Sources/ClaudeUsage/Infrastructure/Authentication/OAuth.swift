@@ -150,10 +150,14 @@ nonisolated struct TokenResponse: Decodable, Sendable {
 /// Rotating one out from under a running Claude Code session would break its next refresh, so
 /// this deliberately does the least possible work:
 ///
-/// 1. Refresh only once the token is actually expired (or within `nearExpiryWindow`).
-/// 2. Re-read the Keychain under the lock first — if another process already refreshed, use that.
-/// 3. Collapse concurrent in-process callers onto a single refresh task.
-/// 4. Serialise cooperating copies of this app with `flock`.
+/// 1. Serve polls from the last known credentials, so a steady state costs no Keychain reads.
+/// 2. Refresh only once the token is actually expired (or within `nearExpiryWindow`).
+/// 3. Re-read the Keychain under the lock first — if another process already refreshed, use that.
+/// 4. Collapse concurrent in-process callers onto a single refresh task.
+/// 5. Serialise cooperating copies of this app with `flock`.
+///
+/// A cached copy can be stale when Claude Code rotates the token; the 401 retry path forces a
+/// reload, so staleness costs one rejected request rather than a wrong answer.
 ///
 /// The lock is app-owned and advisory: Claude Code does not participate in it. The exact
 /// Keychain item is therefore re-read again before every write to detect external rotation and
@@ -165,13 +169,23 @@ actor AuthManager {
     private let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     private let nearExpiryWindow: TimeInterval = 120
     private var inFlight: RefreshOperation?
+    private var cached: Credentials?
 
     func accessToken() async throws -> String {
-        let credentials = try Credentials.load()
+        let credentials = try currentCredentials(reloading: false)
         guard credentials.isExpiring(within: nearExpiryWindow) else {
             return credentials.accessToken
         }
         return try await refreshLocked(reason: .expiring)
+    }
+
+    private func currentCredentials(reloading: Bool) throws -> Credentials {
+        if !reloading, let cached {
+            return cached
+        }
+        let loaded = try Credentials.load()
+        cached = loaded
+        return loaded
     }
 
     /// Refreshes after a 401 only if the rejected token is still current. If another process
@@ -219,7 +233,7 @@ actor AuthManager {
         defer { lock.unlock() }
 
         // A cooperating app process may have refreshed while this task waited for the lock.
-        var credentials = try Credentials.load()
+        var credentials = try currentCredentials(reloading: true)
         switch reason {
         case .expiring:
             guard credentials.isExpiring(within: nearExpiryWindow) else {
@@ -237,6 +251,7 @@ actor AuthManager {
 
         let refreshed = try await requestToken(refreshToken: credentials.refreshToken)
         _ = try credentials.applyAndPersist(refreshed)
+        cached = credentials
         return credentials.accessToken
     }
 

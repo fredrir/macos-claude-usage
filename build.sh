@@ -125,5 +125,31 @@ fi
 rm -rf "${INSTALL_DIR:?}/${APP}"
 cp -R "${APP}" "${INSTALL_DIR}/"
 
+OTHER_COPIES=()
+for candidate in "/Applications/${APP}" "${HOME}/Applications/${APP}"; do
+  if [[ "${candidate}" != "${INSTALL_DIR}/${APP}" && -e "${candidate}" ]]; then
+    OTHER_COPIES+=("${candidate}")
+  fi
+done
+
+if [[ ${#OTHER_COPIES[@]} -gt 0 ]]; then
+  echo
+  echo "warning: another copy of ${APP} is installed elsewhere:" >&2
+  for candidate in "${OTHER_COPIES[@]}"; do
+    echo "    ${candidate}" >&2
+  done
+  cat >&2 <<'EOF'
+
+    SMAppService records the bundle that registered it, so login may still start the
+    other copy. Two copies polling at once also rotate the same refresh token against
+    each other. Remove the stale one:
+
+EOF
+  for candidate in "${OTHER_COPIES[@]}"; do
+    echo "    rm -rf \"${candidate}\"" >&2
+  done
+  echo >&2
+fi
+
 echo "==> Done. Launch with:"
 echo "    open \"${INSTALL_DIR}/${APP}\""
