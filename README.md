@@ -92,7 +92,7 @@ simply being refused. Claude Code itself caches a successful response for a full
 
 So the app is deliberately conservative:
 
-- polls on a fixed interval (default 30 min, selectable 15/30/60 in the dropdown)
+- polls on a fixed interval (default 30 min, selectable 15/30/60 in Settings)
 - never sends a request before a recorded `retry-after` has elapsed, plus a 60s margin so it
   cannot land on the boundary and re-trigger the penalty
 - enforces a 15 minute floor between calls, so mashing Refresh cannot burn the budget
@@ -230,10 +230,10 @@ By hand, or from CI:
 bypassed shows up as a failure rather than as a quietly outdated README.
 
 Under the hood it is `ClaudeUsage --screenshot <dir>`. The app puts the real `DropdownView` in
-an `NSHostingView` inside an offscreen window and reads the layer back at 2×, so the picker,
-the checkbox and the links are the actual controls rather than a mock-up, and the menu bar
-chip comes from the same `GaugeRenderer` that draws the status item. Both are rendered twice,
-once per appearance, and the README picks light or dark from `prefers-color-scheme`.
+an `NSHostingView` inside an offscreen window and reads the layer back at 2×, so the refresh,
+Settings, and Quit controls are not mock-ups. The menu bar chip comes from the same
+`GaugeRenderer` that draws the status item. Both are rendered twice, once per appearance, and
+the README picks light or dark from `prefers-color-scheme`.
 
 Output is byte-identical between runs — `git status` stays clean unless the UI actually
 changed. Two things make that true:

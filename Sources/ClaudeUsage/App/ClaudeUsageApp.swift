@@ -108,14 +108,19 @@ struct ClaudeUsageApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarDropdownContent(
-                store: delegate.store,
-                launchAtLogin: delegate.launchAtLogin
-            )
+            MenuBarDropdownContent(store: delegate.store)
         } label: {
             MenuBarGaugeLabel(store: delegate.store)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(
+                store: delegate.store,
+                launchAtLogin: delegate.launchAtLogin
+            )
+        }
+        .windowResizability(.contentSize)
     }
 }
 
@@ -167,10 +172,9 @@ private struct MenuBarGaugeLabel: View {
 
 private struct MenuBarDropdownContent: View {
     @ObservedObject var store: UsageStore
-    @ObservedObject var launchAtLogin: LaunchAtLoginModel
 
     var body: some View {
-        DropdownView(store: store, launchAtLogin: launchAtLogin)
+        DropdownView(store: store)
             .onAppear { store.refreshIfStale() }
     }
 }

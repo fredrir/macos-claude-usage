@@ -41,8 +41,7 @@ enum Screenshots {
 
     // MARK: - The two images
 
-    /// The dropdown, captured from a real `NSHostingView` so the AppKit-backed controls (picker,
-    /// checkbox, links) come out as the user sees them.
+    /// The dropdown, captured from a real `NSHostingView` so controls match the running app.
     private static func dropdown(_ appearance: Appearance) -> NSBitmapImageRep {
         let store = UsageStore(
             fixture: Fixture.buckets,
@@ -50,9 +49,8 @@ enum Screenshots {
             lastUpdated: now.addingTimeInterval(-260),
             clock: FixedDateProvider(now: now)
         )
-        let launchAtLogin = LaunchAtLoginModel(service: FixedLaunchAtLoginService(isEnabled: false))
         let hosting = NSHostingView(
-            rootView: DropdownView(store: store, launchAtLogin: launchAtLogin)
+            rootView: DropdownView(store: store)
         )
         hosting.appearance = appearance.nsAppearance
         settleLayout(of: hosting, appearance: appearance)

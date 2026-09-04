@@ -63,8 +63,7 @@ struct DropdownLayoutTests {
             lastUpdated: now,
             clock: FixedTestDateProvider(now: now)
         )
-        let login = LaunchAtLoginModel(service: FixedLaunchAtLoginService(isEnabled: false))
-        let hosting = NSHostingView(rootView: DropdownView(store: store, launchAtLogin: login))
+        let hosting = NSHostingView(rootView: DropdownView(store: store))
 
         hosting.frame = NSRect(x: 0, y: 0, width: 292, height: 700)
         let window = NSWindow(
