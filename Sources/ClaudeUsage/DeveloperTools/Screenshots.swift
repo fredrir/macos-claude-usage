@@ -46,6 +46,7 @@ enum Screenshots {
     private static func dropdown(_ appearance: Appearance) -> NSBitmapImageRep {
         let store = UsageStore(
             fixture: Fixture.buckets,
+            codexBuckets: Fixture.codexBuckets,
             lastUpdated: now.addingTimeInterval(-260),
             clock: FixedDateProvider(now: now)
         )
@@ -54,7 +55,7 @@ enum Screenshots {
             rootView: DropdownView(store: store, launchAtLogin: launchAtLogin)
         )
         hosting.appearance = appearance.nsAppearance
-        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+        settleLayout(of: hosting, appearance: appearance)
 
         let backdrop = BackdropView(frame: hosting.frame)
         backdrop.appearance = appearance.nsAppearance
@@ -63,6 +64,31 @@ enum Screenshots {
         backdrop.addSubview(hosting)
 
         return capture(backdrop, appearance: appearance)
+    }
+
+    /// Let state driven by layout preferences settle before freezing the host's capture frame.
+    private static func settleLayout(of hosting: NSView, appearance: Appearance) {
+        let initialSize = NSSize(width: 292, height: 700)
+        hosting.frame = NSRect(origin: .zero, size: initialSize)
+
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = appearance.nsAppearance
+        window.contentView = hosting
+        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
+        window.orderFrontRegardless()
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        hosting.layoutSubtreeIfNeeded()
+        let fittingSize = hosting.fittingSize
+
+        window.orderOut(nil)
+        window.contentView = nil
+        hosting.frame = NSRect(origin: .zero, size: fittingSize)
     }
 
     /// The collapsed status item, on a chip standing in for the menu bar behind it.
@@ -219,6 +245,19 @@ private enum Fixture {
         }
     }()
 
+    static let codexBuckets: [UsageBucket] = {
+        do {
+            let response = try JSONDecoder().decode(
+                CodexRateLimitsResponseDTO.self,
+                from: Data(codexJSON.utf8)
+            )
+            return CodexRateLimitsMapper().buckets(from: response)
+        } catch {
+            assertionFailure("Invalid Codex screenshot fixture: \(error)")
+            return []
+        }
+    }()
+
     /// Reset times are absolute, matching the pinned clock in `Screenshots`: the session lands
     /// 2h 41m out, the weekly windows on Monday 09:00. Timestamps are ISO 8601 strings because
     /// that is what the live endpoint emits.
@@ -235,6 +274,42 @@ private enum Fixture {
               "scope": { "model": { "display_name": "Fable 5" } }
             }
           ]
+        }
+        """
+
+    /// The fixture includes the main quota and a Spark quota. Spark is intentionally filtered
+    /// from the dropdown; main-window labels still come from the server durations.
+    private static let codexJSON = """
+        {
+          "rateLimitsByLimitId": {
+            "codex": {
+              "limitId": "codex",
+              "primary": {
+                "usedPercent": 27,
+                "windowDurationMins": 300,
+                "resetsAt": 1768496700
+              },
+              "secondary": {
+                "usedPercent": 54,
+                "windowDurationMins": 10080,
+                "resetsAt": 1768813200
+              }
+            },
+            "codex_spark": {
+              "limitId": "codex_spark",
+              "limitName": "Codex Spark",
+              "primary": {
+                "usedPercent": 8,
+                "windowDurationMins": 300,
+                "resetsAt": 1768501800
+              },
+              "secondary": {
+                "usedPercent": 31,
+                "windowDurationMins": 10080,
+                "resetsAt": 1768813200
+              }
+            }
+          }
         }
         """
 }

@@ -35,7 +35,7 @@ bash -n build.sh screenshots.sh Scripts/release.sh
 ./screenshots.sh --check
 ```
 
-The screenshot command renders a pinned fixture and clock. It does not read Claude Code credentials or contact the live
-usage endpoint. Unit tests must use injected clients and fixtures; live usage requests are not allowed in CI.
+The screenshot command renders pinned Claude and Codex fixtures with a pinned clock. It does not read credentials or
+contact live usage services. Unit tests use injected clients and fixtures; live usage requests are not allowed in CI.
 
 For signing and notarization, see [Security and distribution decisions](security-and-distribution.md).

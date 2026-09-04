@@ -10,5 +10,7 @@ enum AppPaths {
 
     static var cachedPayload: URL { supportDirectory.appendingPathComponent("usage.json") }
     static var pollingState: URL { supportDirectory.appendingPathComponent("polling-state.json") }
+    static var codexCachedPayload: URL { supportDirectory.appendingPathComponent("codex-usage.json") }
+    static var codexPollingState: URL { supportDirectory.appendingPathComponent("codex-polling-state.json") }
     static var refreshLock: URL { supportDirectory.appendingPathComponent("refresh.lock") }
 }

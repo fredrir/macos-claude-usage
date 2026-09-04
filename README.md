@@ -1,6 +1,6 @@
 # Claude Usage
 
-A macOS menu bar app showing how much Claude Code quota you have left.
+A macOS menu bar app showing how much Claude Code and Codex quota you have left.
 
 ## Collapsed
 
@@ -13,7 +13,7 @@ A macOS menu bar app showing how much Claude Code quota you have left.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dropdown-dark.png">
-  <img src="docs/screenshots/dropdown-light.png" width="292" alt="Dropdown listing the session, weekly, Fable and Opus windows with usage bars and reset times">
+  <img src="docs/screenshots/dropdown-light.png" width="292" alt="Dropdown listing Claude and Codex usage windows with usage bars and reset times">
 </picture>
 
 ## Install
@@ -27,11 +27,30 @@ open ~/Applications/ClaudeUsage.app
 > On first launch macOS asks for permission to read the Claude Code credentials from your
 Keychain. Choose **Always Allow**.
 
+Codex rows reuse the existing ChatGPT app or Codex CLI sign-in. Install and sign in to either
+before launching Claude Usage.
+
 ```sh
 ./build.sh --signing-identity "Apple Development: Your Name (TEAMID)"
 ```
 
 ## Where the numbers come from
+
+| Provider | Source | Authentication |
+| --- | --- | --- |
+| Claude | `GET https://api.anthropic.com/api/oauth/usage` | Claude Code Keychain item |
+| Codex | `codex app-server` → `account/rateLimits/read` | Existing Codex/ChatGPT session |
+
+The Codex app-server returns the main quota plus `rateLimitsByLimitId` model-specific quotas.
+Each `primary` and `secondary` row uses the server's `windowDurationMins`, `usedPercent`, and
+`resetsAt`; labels such as **5-hour limit** and **Weekly limit** are derived from that duration.
+The dropdown includes populated model-specific windows except Codex Spark. The collapsed menu-bar gauges remain
+Claude-only.
+
+See the official [Codex app-server documentation](https://developers.openai.com/codex/app-server)
+for the account protocol.
+
+### Claude
 
 `GET https://api.anthropic.com/api/oauth/usage` — the same endpoint behind Claude Code's own
 `/usage` command. The OAuth token is read from the Keychain item Claude Code stores under the
@@ -80,14 +99,30 @@ So the app is deliberately conservative:
 - refreshes on menu-open only if the data has aged past half the poll interval
 - exponential backoff, capped at an hour, for network and 5xx errors
 - keeps the last good payload in `~/Library/Application Support/ClaudeUsage/usage.json`
-  so a restart paints immediately; anything older than an hour renders dimmed
-- persists the request schedule separately in `polling-state.json` *before* starting network
+  and Codex payload in `codex-usage.json`, so a restart paints immediately; anything older than
+  an hour renders dimmed
+- persists provider schedules separately in `polling-state.json` and
+  `codex-polling-state.json` *before* starting network
   work, so quitting or relaunching cannot bypass the 15-minute floor or a server penalty
+- fetches Claude and Codex concurrently, so one provider cannot add latency to the other
 
 If you ever see it stuck on "Rate limited", leave it alone — it is already waiting exactly as
 long as the server asked, and poking it makes the wait longer.
 
-## Token refresh
+## Authentication
+
+| Provider | Behavior |
+| --- | --- |
+| Claude | Reads and refreshes the existing Claude Code Keychain credential |
+| Codex | Delegates cached credentials and automatic refresh to `codex app-server` |
+
+Claude Usage never reads, copies, or logs `~/.codex/auth.json`, and never starts a separate Codex
+login flow. Codex automatically refreshes active ChatGPT sessions. If the session can no longer
+refresh, the dropdown asks for one `codex login`; authentication failures back off for 15 minutes
+instead of repeatedly invoking Codex. See the official
+[Codex authentication documentation](https://developers.openai.com/codex/auth).
+
+### Claude token refresh
 
 Access token expires roughly every 8 hours. The app refreshes it itself against
 `https://platform.claude.com/v1/oauth/token` and writes the result back to the same Keychain
@@ -121,9 +156,11 @@ swift test
 
 # print resolved windows and exit — handy for checking against /usage
 ./.build/debug/ClaudeUsage --dump
+./.build/debug/ClaudeUsage --dump-codex
 
 # drive the UI from a JSON file instead of the live endpoint
 CLAUDE_USAGE_FIXTURE=/path/to/fixture.json ./.build/debug/ClaudeUsage
+CODEX_USAGE_FIXTURE=/path/to/codex-fixture.json ./.build/debug/ClaudeUsage
 
 # what the running app actually did — every fetch, outcome and wait
 tail -f "$HOME/Library/Application Support/ClaudeUsage/usage.log"
@@ -202,9 +239,9 @@ Output is byte-identical between runs — `git status` stays clean unless the UI
 changed. Two things make that true:
 
 - a fixture compiled into `Screenshots.swift` rather than live account data, so the numbers in
-  the README are not anyone's real usage
+  the README are not anyone's real Claude or Codex usage
 - an injected fixed `DateProvider` and a pinned `UTC` timezone, so "Resets in 2h 41m",
-  "Resets Mon 09:00" and "Updated 14:27" are fixed strings instead of whatever the wall clock
+  reset labels such as "Resets Mon 09:00" are fixed instead of whatever the wall clock
   said at render time
 
 It needs a window server, so run it on a logged-in Mac rather than over a bare SSH session; a

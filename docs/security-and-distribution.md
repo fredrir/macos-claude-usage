@@ -15,6 +15,22 @@ Revisit it if Claude Code exposes a supported credential broker, shared access g
 flow. A read-only design that never rotates Claude Code's credential would reduce risk but would not by itself solve
 the sandbox access-group boundary.
 
+## Codex authentication boundary
+
+| Concern | Behavior |
+| --- | --- |
+| Protocol | `codex app-server` over local stdin/stdout |
+| Credentials | Owned and refreshed by Codex |
+| Token access | Claude Usage never reads `~/.codex/auth.json` or Codex Keychain items |
+| Login | No browser or device login is started by Claude Usage |
+| Executable lookup | ChatGPT/Codex app bundles, standard CLI paths, then `PATH` |
+| Override | `CODEX_USAGE_CODEX_PATH` |
+
+The app launches the executable directly with `Process`; it does not invoke a shell. JSON-RPC
+output is capped at 1 MiB, stderr is discarded, and the process is terminated after a response,
+timeout, or cancellation. A missing or expired sign-in becomes a dropdown status and uses
+persisted backoff.
+
 ## Release entitlements
 
 [`Configuration/ClaudeUsage.release.entitlements`](../Configuration/ClaudeUsage.release.entitlements) is intentionally

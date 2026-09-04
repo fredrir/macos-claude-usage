@@ -4,18 +4,25 @@ import UsageCore
 struct DropdownView: View {
     @ObservedObject var store: UsageStore
     @ObservedObject var launchAtLogin: LaunchAtLoginModel
+    @State private var usageContentHeight: CGFloat = 180
+
+    private static let maximumUsageContentHeight: CGFloat = 520
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if store.buckets.isEmpty {
-                emptyState
-            } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(store.buckets) { bucket in
-                        BucketRow(bucket: bucket, dimmed: store.isStale, now: store.now)
-                    }
+            ScrollView {
+                usageContent
+            }
+            // A non-zero initial height prevents MenuBarExtra from collapsing its ScrollView.
+            // Once laid out, track the real content height and cap only genuine overflow.
+            .frame(
+                height: min(usageContentHeight, Self.maximumUsageContentHeight)
+            )
+            .onPreferenceChange(UsageContentHeightKey.self) { measuredHeight in
+                guard measuredHeight > 0, abs(measuredHeight - usageContentHeight) > 0.5 else {
+                    return
                 }
-                .padding(16)
+                usageContentHeight = measuredHeight
             }
 
             Divider()
@@ -25,25 +32,46 @@ struct DropdownView: View {
         .onAppear { launchAtLogin.refresh() }
     }
 
-    /// The reason there is nothing to show lives in the footer's status line, so this stays a
-    /// bare heading rather than repeating it.
-    private var emptyState: some View {
-        Text("No usage data yet")
-            .font(.system(size: 13, weight: .semibold))
-            .padding(16)
+    private var usageContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ProviderUsageSection(
+                title: "Claude",
+                buckets: store.buckets,
+                isStale: store.isStale,
+                statusMessage: store.statusMessage,
+                statusIcon: store.statusIcon,
+                statusIsWarning: store.statusIsWarning,
+                now: store.now
+            )
+
+            Divider()
+
+            ProviderUsageSection(
+                title: "Codex",
+                buckets: store.codexBuckets,
+                isStale: store.codexIsStale,
+                statusMessage: store.codexStatusMessage,
+                statusIcon: store.codexStatusIcon,
+                statusIsWarning: store.codexStatusIsWarning,
+                now: store.now
+            )
+        }
+        .padding(16)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: UsageContentHeightKey.self,
+                    value: geometry.size.height
+                )
+            }
+        }
     }
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let message = store.statusMessage {
-                Label(message, systemImage: store.statusIcon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(store.statusIsWarning ? Color(nsColor: .systemOrange) : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
             HStack(spacing: 6) {
                 Text("Check every")
+                Spacer(minLength: 12)
                 Picker("", selection: $store.pollInterval) {
                     Text("15 min").tag(TimeInterval(900))
                     Text("30 min").tag(TimeInterval(1800))
@@ -52,6 +80,7 @@ struct DropdownView: View {
                 .labelsHidden()
                 .frame(width: 92)
             }
+            .frame(maxWidth: .infinity)
             .font(.system(size: 11))
 
             Toggle(
@@ -84,6 +113,60 @@ struct DropdownView: View {
     }
 }
 
+private struct UsageContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct ProviderUsageSection: View {
+    let title: String
+    let buckets: [UsageBucket]
+    let isStale: Bool
+    let statusMessage: String?
+    let statusIcon: String
+    let statusIsWarning: Bool
+    let now: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+
+            if buckets.isEmpty {
+                if statusIsWarning, let statusMessage {
+                    statusRow(statusMessage)
+                } else {
+                    Text("No usage limits returned")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(buckets) { bucket in
+                        BucketRow(bucket: bucket, dimmed: isStale, now: now)
+                    }
+                }
+
+                if statusIsWarning, let statusMessage {
+                    statusRow(statusMessage)
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(title) usage")
+    }
+
+    private func statusRow(_ message: String) -> some View {
+        Label(message, systemImage: statusIcon)
+            .font(.system(size: 10))
+            .foregroundStyle(Color(nsColor: .systemOrange))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 private struct BucketRow: View {
     let bucket: UsageBucket
     let dimmed: Bool
@@ -94,11 +177,14 @@ private struct BucketRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(bucket.title)
                     .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                Text("\(Int(bucket.utilization.rounded(.down)))% used")
+                Text("\(Int(bucket.remaining.rounded(.down)))% left")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+                    .fixedSize()
             }
 
             GaugeBar(fraction: bucket.usedFraction, tint: tint)

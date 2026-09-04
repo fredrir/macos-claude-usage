@@ -20,6 +20,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if CommandLine.arguments.contains("--dump-codex") {
+            dumpCodexBuckets()
+            return
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--screenshot") {
             let path = CommandLine.arguments.dropFirst(index + 1).first ?? "docs/screenshots"
             do {
@@ -36,7 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static var isCommandLineInvocation: Bool {
-        CommandLine.arguments.contains("--dump") || CommandLine.arguments.contains("--screenshot")
+        CommandLine.arguments.contains("--dump") || CommandLine.arguments.contains("--dump-codex")
+            || CommandLine.arguments.contains("--screenshot")
     }
 
     private static var hasRunningSibling: Bool {
@@ -56,20 +62,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if buckets.isEmpty {
                     print("No populated limit windows in the response.")
                 }
-                for bucket in buckets {
-                    let title = bucket.title.padding(toLength: 30, withPad: " ", startingAt: 0)
-                    let used = String(format: "%5.1f%% used", bucket.utilization)
-                    let left = String(format: "%5.1f%% left", bucket.remaining)
-                    let reset =
-                        ResetFormatter.text(for: bucket.resetsAt, relativeTo: .now)
-                        ?? "no reset time"
-                    print("\(title)  \(used)  \(left)   \(reset)")
-                }
+                printBuckets(buckets)
             } catch {
                 print("error: \(error.localizedDescription)")
                 exit(1)
             }
             exit(0)
+        }
+    }
+
+    /// Prints Codex's resolved main and model-specific windows without touching the UI cache.
+    private func dumpCodexBuckets() {
+        Task {
+            do {
+                let result = try await CodexAppServerClient().fetch()
+                let buckets = CodexRateLimitsMapper().buckets(from: result.response)
+                if buckets.isEmpty {
+                    print("No populated Codex limit windows in the response.")
+                }
+                printBuckets(buckets)
+            } catch {
+                print("error: \(error.localizedDescription)")
+                exit(1)
+            }
+            exit(0)
+        }
+    }
+
+    private func printBuckets(_ buckets: [UsageBucket]) {
+        for bucket in buckets {
+            let title = bucket.title.padding(toLength: 40, withPad: " ", startingAt: 0)
+            let used = String(format: "%5.1f%% used", bucket.utilization)
+            let left = String(format: "%5.1f%% left", bucket.remaining)
+            let reset =
+                ResetFormatter.text(for: bucket.resetsAt, relativeTo: .now)
+                ?? "no reset time"
+            print("\(title)  \(used)  \(left)   \(reset)")
         }
     }
 }
@@ -109,13 +137,14 @@ private struct MenuBarGaugeLabel: View {
             .compactMap { $0 }
             .map { GaugeRenderer.Item(bucket: $0) }
 
-        let appearanceName: NSAppearance.Name = switch (colorScheme, colorSchemeContrast) {
-        case (.dark, .increased): .accessibilityHighContrastDarkAqua
-        case (.light, .increased): .accessibilityHighContrastAqua
-        case (.dark, _): .darkAqua
-        case (.light, _): .aqua
-        @unknown default: .aqua
-        }
+        let appearanceName: NSAppearance.Name =
+            switch (colorScheme, colorSchemeContrast) {
+            case (.dark, .increased): .accessibilityHighContrastDarkAqua
+            case (.light, .increased): .accessibilityHighContrastAqua
+            case (.dark, _): .darkAqua
+            case (.light, _): .aqua
+            @unknown default: .aqua
+            }
         guard let appearance = NSAppearance(named: appearanceName) else {
             return GaugeRenderer.image(for: items, dimmed: store.isStale)
         }
