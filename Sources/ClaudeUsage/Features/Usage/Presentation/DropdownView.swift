@@ -2,6 +2,7 @@ import SwiftUI
 import UsageCore
 
 struct DropdownView: View {
+    @Environment(\.openSettings) private var openSettings
     @ObservedObject var store: UsageStore
     @State private var usageContentHeight: CGFloat = 180
 
@@ -70,7 +71,12 @@ struct DropdownView: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
-            SettingsLink {
+            Button {
+                // Menu bar apps don't become active when their extra opens. Activate first so
+                // the Settings scene appears above the app the user was previously working in.
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                openSettings()
+            } label: {
                 MenuRowLabel(title: "Settings…", shortcut: "⌘,")
             }
             .buttonStyle(MenuRowButtonStyle())
