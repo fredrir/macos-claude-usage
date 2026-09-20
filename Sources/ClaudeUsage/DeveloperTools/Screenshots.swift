@@ -2,30 +2,25 @@ import AppKit
 import SwiftUI
 import UsageCore
 
-/// `--screenshot <dir>`: renders the README images from the real views, offscreen.
-///
-/// Nothing here mocks the UI — the dropdown is `DropdownView` in an `NSHostingView` and the bar
-/// image is `GaugeRenderer`'s, both against a pinned fixture and a pinned clock, so re-running
-/// this produces identical files rather than a diff full of shifted timestamps.
 @MainActor
 enum Screenshots {
-    /// Thursday 15 Jan 2026, 14:32 UTC. Pinned so weekday and clock text never move.
     private static let now = Date(timeIntervalSince1970: 1_768_487_520)
     private static let scale: CGFloat = 2
 
     static func write(into directory: URL) throws {
         NSTimeZone.default = TimeZone(identifier: "UTC")!
 
-        // No dock icon, no menu bar item — but AppKit still needs to be woken up before it will
-        // lay out and draw a window.
         let application = NSApplication.shared
-        application.setActivationPolicy(.prohibited)
+        application.setActivationPolicy(.accessory)
         application.finishLaunching()
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         for appearance in Appearance.allCases {
-            try write(dropdown(appearance), to: directory, named: "dropdown-\(appearance.name)")
+            guard let dropdown = captureMenu(appearance) else {
+                throw ScreenshotError.menuCaptureFailed(appearance.name)
+            }
+            try write(dropdown, to: directory, named: "dropdown-\(appearance.name)")
             try write(menuBar(appearance), to: directory, named: "menubar-\(appearance.name)")
         }
     }
@@ -39,57 +34,135 @@ enum Screenshots {
         print("wrote \(url.path) (\(rep.pixelsWide)×\(rep.pixelsHigh))")
     }
 
-    // MARK: - The two images
+    private static func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+    }
 
-    /// The dropdown, captured from a real `NSHostingView` so controls match the running app.
-    private static func dropdown(_ appearance: Appearance) -> NSBitmapImageRep {
+    private static func captureMenu(_ appearance: Appearance) -> NSBitmapImageRep? {
+        for _ in 1...8 {
+            if let rep = attemptMenuCapture(appearance), looksRendered(rep) { return rep }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        return nil
+    }
+
+    private static func looksRendered(_ rep: NSBitmapImageRep) -> Bool {
+        var darkest = CGFloat.greatestFiniteMagnitude
+        var lightest: CGFloat = 0
+        let columnStep = max(1, rep.pixelsWide / 40)
+        let rowStep = max(1, rep.pixelsHigh / 80)
+        let rowsEnd = Int(Double(rep.pixelsHigh) * 0.7)
+
+        for y in stride(from: 0, to: rowsEnd, by: rowStep) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: columnStep) {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let luma =
+                    0.299 * color.redComponent + 0.587 * color.greenComponent
+                    + 0.114 * color.blueComponent
+                darkest = min(darkest, luma)
+                lightest = max(lightest, luma)
+            }
+        }
+        return lightest - darkest > 0.25
+    }
+
+    private static func attemptMenuCapture(_ appearance: Appearance) -> NSBitmapImageRep? {
         let store = UsageStore(
             fixture: Fixture.buckets,
             codexBuckets: Fixture.codexBuckets,
             lastUpdated: now.addingTimeInterval(-260),
             clock: FixedDateProvider(now: now)
         )
-        let hosting = NSHostingView(
-            rootView: DropdownView(store: store)
+
+        NSApplication.shared.appearance = appearance.nsAppearance
+
+        let responder = InertResponder()
+        let menu = NSMenu()
+        menu.appearance = appearance.nsAppearance
+        UsageMenuBuilder.populate(
+            menu,
+            from: store,
+            actions: UsageMenuBuilder.Actions(
+                refreshClaude: {},
+                refreshCodex: {},
+                signInClaude: nil,
+                signInCodex: nil,
+                settings: (target: responder, action: #selector(InertResponder.noop)),
+                quit: (target: responder, action: #selector(InertResponder.noop))
+            )
         )
-        hosting.appearance = appearance.nsAppearance
-        settleLayout(of: hosting, appearance: appearance)
 
-        let backdrop = BackdropView(frame: hosting.frame)
-        backdrop.appearance = appearance.nsAppearance
-        backdrop.cornerRadius = 10
-        backdrop.fill = appearance.popoverBackground
-        backdrop.addSubview(hosting)
-
-        return capture(backdrop, appearance: appearance)
-    }
-
-    /// Let state driven by layout preferences settle before freezing the host's capture frame.
-    private static func settleLayout(of hosting: NSView, appearance: Appearance) {
-        let initialSize = NSSize(width: 292, height: 700)
-        hosting.frame = NSRect(origin: .zero, size: initialSize)
-
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
+        let capture = MenuCapture(menu: menu)
+        let timer = Timer(
+            timeInterval: MenuCapture.tick,
+            target: capture,
+            selector: #selector(MenuCapture.fire),
+            userInfo: nil,
+            repeats: true
         )
-        window.appearance = appearance.nsAppearance
-        window.contentView = hosting
-        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        window.orderFrontRegardless()
+        RunLoop.current.add(timer, forMode: .eventTracking)
+        menu.popUp(positioning: nil, at: popUpOrigin(for: menu), in: nil)
+        timer.invalidate()
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        hosting.layoutSubtreeIfNeeded()
-        let fittingSize = hosting.fittingSize
-
-        window.orderOut(nil)
-        window.contentView = nil
-        hosting.frame = NSRect(origin: .zero, size: fittingSize)
+        return capture.rep
     }
 
-    /// The collapsed status item, on a chip standing in for the menu bar behind it.
+    private static func popUpOrigin(for menu: NSMenu) -> NSPoint {
+        guard let frame = NSScreen.main?.visibleFrame else { return NSPoint(x: 100, y: 100) }
+        let pointer = NSEvent.mouseLocation
+        let x =
+            pointer.x > frame.midX
+            ? frame.minX + 40
+            : frame.maxX - 40 - MenuMetrics.contentWidth
+        let y = max(frame.minY + menu.size.height, min(frame.maxY - 40, frame.maxY))
+        return NSPoint(x: x, y: y)
+    }
+
+    @MainActor
+    private final class MenuCapture: NSObject {
+        static let tick: TimeInterval = 0.05
+        static let captureTick = 10
+
+        let menu: NSMenu
+        var rep: NSBitmapImageRep?
+        private var ticks = 0
+
+        init(menu: NSMenu) {
+            self.menu = menu
+        }
+
+        private weak var located: NSWindow?
+
+        private func locateTrackingWindow() -> NSWindow? {
+            if let located { return located }
+            located = NSApplication.shared.windows.first {
+                $0.isVisible && String(describing: type(of: $0)).contains("MenuWindow")
+            }
+            return located
+        }
+
+        @objc func fire() {
+            ticks += 1
+
+            let window = locateTrackingWindow()
+            window?.alphaValue = 0
+
+            guard ticks >= Self.captureTick else { return }
+
+            if let content = window?.contentView, content.bounds.height > 1,
+                let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds)
+            {
+                content.cacheDisplay(in: content.bounds, to: rep)
+                self.rep = rep
+            }
+            menu.cancelTracking()
+        }
+    }
+
     private static func menuBar(_ appearance: Appearance) -> NSBitmapImageRep {
         let items = [Fixture.buckets.session, Fixture.buckets.fable]
             .compactMap { $0 }
@@ -104,44 +177,9 @@ enum Screenshots {
         return bitmap(size: size, appearance: appearance) {
             appearance.menuBarBackground.setFill()
             NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 6, yRadius: 6).fill()
-            // `NSImage`'s drawing handler runs here, inside the appearance, so its dynamic colours
-            // resolve for the appearance being rendered rather than the process default.
             gauge.draw(
                 at: NSPoint(x: padding.width, y: padding.height), from: .zero, operation: .sourceOver, fraction: 1)
         }
-    }
-
-    // MARK: - Offscreen capture
-
-    /// Hosts the view in an offscreen window — SwiftUI needs one to lay out and draw — then reads
-    /// the pixels back at `scale`.
-    private static func capture(_ view: NSView, appearance: Appearance) -> NSBitmapImageRep {
-        let window = NSWindow(
-            contentRect: view.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.appearance = appearance.nsAppearance
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.contentView = view
-        // Parked far outside any display: it has to be ordered in to draw, but never appears.
-        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        window.orderFrontRegardless()
-
-        // Let SwiftUI settle: layout, control instantiation and image decoding all land on the
-        // next few runloop turns.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
-        view.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-
-        let rep = bitmap(size: view.bounds.size, appearance: appearance) {
-            guard let context = NSGraphicsContext.current else { return }
-            view.layer?.render(in: context.cgContext)
-        }
-        window.orderOut(nil)
-        return rep
     }
 
     private static func bitmap(
@@ -170,7 +208,9 @@ enum Screenshots {
         return rep
     }
 
-    // MARK: - Supporting types
+    private final class InertResponder: NSObject {
+        @objc func noop() {}
+    }
 
     private enum Appearance: CaseIterable {
         case light, dark
@@ -179,14 +219,6 @@ enum Screenshots {
 
         var nsAppearance: NSAppearance {
             NSAppearance(named: self == .light ? .aqua : .darkAqua)!
-        }
-
-        /// The menu-bar window's own material is a behind-window blur, which has nothing behind it
-        /// offscreen; these are its opaque equivalents.
-        var popoverBackground: NSColor {
-            self == .light
-                ? NSColor(white: 0.965, alpha: 1)
-                : NSColor(white: 0.145, alpha: 1)
         }
 
         var menuBarBackground: NSColor {
@@ -198,37 +230,18 @@ enum Screenshots {
 
     private enum ScreenshotError: LocalizedError {
         case encodingFailed(String)
+        case menuCaptureFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .encodingFailed(let name): return "Could not encode \(name).png"
+            case .menuCaptureFailed(let name):
+                return "Could not capture the \(name) menu no tracking menu window was found"
             }
         }
     }
 }
 
-/// An opaque, rounded backing for the captured view that approximates the menu-bar window.
-private final class BackdropView: NSView {
-    var fill: NSColor = .windowBackgroundColor
-    var cornerRadius: CGFloat = 0
-
-    override var wantsUpdateLayer: Bool { true }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        wantsLayer = true
-        layer?.masksToBounds = true
-        updateLayer()
-    }
-
-    override func updateLayer() {
-        layer?.cornerRadius = cornerRadius
-        layer?.backgroundColor = fill.cgColor
-    }
-}
-
-/// The numbers the screenshots show: a plausible mid-week account with one window running low,
-/// so the green/orange tinting is visible rather than described.
 private enum Fixture {
     static let buckets: [UsageBucket] = {
         do {
@@ -256,9 +269,6 @@ private enum Fixture {
         }
     }()
 
-    /// Reset times are absolute, matching the pinned clock in `Screenshots`: the session lands
-    /// 2h 41m out, the weekly windows on Monday 09:00. Timestamps are ISO 8601 strings because
-    /// that is what the live endpoint emits.
     private static let json = """
         {
           "five_hour": { "utilization": 42, "resets_at": "2026-01-15T17:13:00+00:00" },
@@ -275,8 +285,6 @@ private enum Fixture {
         }
         """
 
-    /// The fixture includes the main quota and a Spark quota. Spark is intentionally filtered
-    /// from the dropdown; main-window labels still come from the server durations.
     private static let codexJSON = """
         {
           "rateLimitsByLimitId": {

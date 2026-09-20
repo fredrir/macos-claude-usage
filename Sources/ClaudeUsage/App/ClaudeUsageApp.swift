@@ -2,10 +2,26 @@ import AppKit
 import SwiftUI
 import UsageCore
 
+@main
+enum ClaudeUsageApp {
+    @MainActor private static var delegate: AppDelegate?
+
+    @MainActor
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = AppDelegate()
+        Self.delegate = delegate
+        application.delegate = delegate
+        application.run()
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    fileprivate let store = UsageStore()
-    fileprivate let launchAtLogin = LaunchAtLoginModel()
+    let store = UsageStore()
+    private let launchAtLogin = LaunchAtLoginModel()
+    private var statusMenu: StatusMenuController?
+    private var openSettings: (() -> Void)?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -25,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if CommandLine.arguments.contains("--verify-refresh") {
+            exit(RefreshProbe.run() ? 0 : 1)
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--screenshot") {
             let path = CommandLine.arguments.dropFirst(index + 1).first ?? "docs/screenshots"
             do {
@@ -36,6 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        let scenes = NSHostingSceneRepresentation {
+            Settings {
+                SettingsView(store: store, launchAtLogin: launchAtLogin)
+            }
+            .windowResizability(.contentSize)
+        }
+        NSApplication.shared.addSceneRepresentation(scenes)
+        openSettings = { scenes.environment.openSettings() }
+
+        statusMenu = StatusMenuController(store: store) { [weak self] in
+            self?.openSettings?()
+        }
+
         launchAtLogin.synchronizeRegistration()
         store.start()
     }
@@ -43,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static var isCommandLineInvocation: Bool {
         CommandLine.arguments.contains("--dump") || CommandLine.arguments.contains("--dump-codex")
             || CommandLine.arguments.contains("--screenshot")
+            || CommandLine.arguments.contains("--verify-refresh")
     }
 
     private static var hasRunningSibling: Bool {
@@ -52,8 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .contains { $0.processIdentifier != current }
     }
 
-    /// Prints the resolved windows and exits — lets the data path be checked against
-    /// `/usage` without reading pixels out of the menu bar.
     private func dumpBuckets() {
         Task {
             do {
@@ -71,7 +103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Prints Codex's resolved main and model-specific windows without touching the UI cache.
     private func dumpCodexBuckets() {
         Task {
             do {
@@ -99,82 +130,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ?? "no reset time"
             print("\(title)  \(used)  \(left)   \(reset)")
         }
-    }
-}
-
-@main
-struct ClaudeUsageApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-
-    var body: some Scene {
-        MenuBarExtra {
-            MenuBarDropdownContent(store: delegate.store)
-        } label: {
-            MenuBarGaugeLabel(store: delegate.store)
-        }
-        .menuBarExtraStyle(.window)
-
-        Settings {
-            SettingsView(
-                store: delegate.store,
-                launchAtLogin: delegate.launchAtLogin
-            )
-        }
-        .windowResizability(.contentSize)
-    }
-}
-
-private struct MenuBarGaugeLabel: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-    @ObservedObject var store: UsageStore
-
-    var body: some View {
-        Image(nsImage: image)
-            .renderingMode(.original)
-            .help(tooltip)
-            .accessibilityLabel("Claude Usage")
-            .accessibilityValue(tooltip)
-    }
-
-    private var image: NSImage {
-        let items = [store.buckets.session, store.buckets.fable]
-            .compactMap { $0 }
-            .map { GaugeRenderer.Item(bucket: $0) }
-
-        let appearanceName: NSAppearance.Name =
-            switch (colorScheme, colorSchemeContrast) {
-            case (.dark, .increased): .accessibilityHighContrastDarkAqua
-            case (.light, .increased): .accessibilityHighContrastAqua
-            case (.dark, _): .darkAqua
-            case (.light, _): .aqua
-            @unknown default: .aqua
-            }
-        guard let appearance = NSAppearance(named: appearanceName) else {
-            return GaugeRenderer.image(for: items, dimmed: store.isStale)
-        }
-
-        var renderedImage: NSImage?
-        appearance.performAsCurrentDrawingAppearance {
-            renderedImage = GaugeRenderer.image(for: items, dimmed: store.isStale)
-        }
-        return renderedImage ?? GaugeRenderer.image(for: items, dimmed: store.isStale)
-    }
-
-    private var tooltip: String {
-        var lines = store.buckets.map {
-            "\($0.title): \(Int($0.remaining.rounded()))% left"
-        }
-        if let message = store.statusMessage { lines.append(message) }
-        return lines.isEmpty ? "Claude Usage" : lines.joined(separator: "\n")
-    }
-}
-
-private struct MenuBarDropdownContent: View {
-    @ObservedObject var store: UsageStore
-
-    var body: some View {
-        DropdownView(store: store)
-            .onAppear { store.refreshIfStale() }
     }
 }

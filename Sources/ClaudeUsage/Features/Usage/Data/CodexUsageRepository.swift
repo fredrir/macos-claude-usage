@@ -1,7 +1,6 @@
 import Foundation
 import UsageCore
 
-/// Owns Codex request scheduling and a provider-specific last-good cache.
 actor CodexUsageRepository {
     private struct CachedPayload: Codable, Sendable {
         let fetchedAt: Date
@@ -73,7 +72,7 @@ actor CodexUsageRepository {
             try persistPollingState()
         } catch {
             let message = "Could not save Codex request scheduling state: \(error.localizedDescription)"
-            Log.write("codex fetch: refused before request — \(message)")
+            Log.write("codex fetch: refused before request \(message)")
             return .failed(message)
         }
 
@@ -120,7 +119,7 @@ actor CodexUsageRepository {
         do {
             pollingState = try JSONDecoder().decode(PollingState.self, from: data)
         } catch {
-            Log.write("Codex polling state: ignored unreadable file — \(error.localizedDescription)")
+            Log.write("Codex polling state: ignored unreadable file \(error.localizedDescription)")
         }
     }
 
@@ -133,7 +132,7 @@ actor CodexUsageRepository {
         do {
             try persistPollingState()
         } catch {
-            Log.write("Codex polling state: save failed after \(context) — \(error.localizedDescription)")
+            Log.write("Codex polling state: save failed after \(context) \(error.localizedDescription)")
         }
     }
 
@@ -143,7 +142,7 @@ actor CodexUsageRepository {
             let encoded = try JSONEncoder().encode(payload)
             try encoded.write(to: cacheURL, options: .atomic)
         } catch {
-            Log.write("Codex cache: save failed — \(error.localizedDescription)")
+            Log.write("Codex cache: save failed \(error.localizedDescription)")
         }
     }
 }

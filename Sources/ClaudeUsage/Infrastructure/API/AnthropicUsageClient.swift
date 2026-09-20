@@ -12,7 +12,7 @@ enum UsageAPIError: LocalizedError, Sendable {
         case .rateLimited(let retryAfter):
             return "Rate limited by the usage endpoint (retry in \(Int(retryAfter / 60))m)."
         case .unauthorized:
-            return "Not authorised — the access token was rejected."
+            return "Not authorised the access token was rejected."
         case .http(let status):
             return "Usage endpoint returned HTTP \(status)."
         case .undecodable(let detail):
@@ -30,10 +30,6 @@ protocol UsageFetching: Sendable {
     func fetch() async throws -> UsageFetchResult
 }
 
-/// Network adapter for Anthropic's OAuth usage endpoint.
-///
-/// Token providers are injected so request behavior can be tested without touching the user's
-/// Keychain. The production defaults delegate to the serialized `AuthManager` actor.
 struct AnthropicUsageClient: UsageFetching {
     static var endpoint: URL {
         AppEnvironment.shared.claudeUsageEndpoint
@@ -60,11 +56,7 @@ struct AnthropicUsageClient: UsageFetching {
         self.refreshToken = refreshToken
     }
 
-    /// Fetches usage, retrying once after a refresh only when the exact rejected token is still
-    /// current. This avoids rotating an already-replaced refresh token after a cross-process race.
     func fetch() async throws -> UsageFetchResult {
-        // Development escape hatch: render and inspect against a fixture without consuming the
-        // endpoint's intentionally conservative request allowance.
         if let fixture = ProcessInfo.processInfo.environment["CLAUDE_USAGE_FIXTURE"] {
             let raw = try Data(contentsOf: URL(fileURLWithPath: fixture))
             return UsageFetchResult(response: try Self.decode(raw), raw: raw)
@@ -79,7 +71,6 @@ struct AnthropicUsageClient: UsageFetching {
         }
     }
 
-    /// Reports the failing field rather than Foundation's generic decoding message.
     static func decode(_ data: Data) throws -> UsageResponseDTO {
         do {
             return try JSONDecoder().decode(UsageResponseDTO.self, from: data)
@@ -87,13 +78,13 @@ struct AnthropicUsageClient: UsageFetching {
             let detail: String
             switch error {
             case .typeMismatch(let type, let context):
-                detail = "\(path(context)) is not \(type) — \(context.debugDescription)"
+                detail = "\(path(context)) is not \(type) \(context.debugDescription)"
             case .valueNotFound(let type, let context):
                 detail = "\(path(context)) missing \(type)"
             case .keyNotFound(let key, let context):
                 detail = "\(path(context)) has no key '\(key.stringValue)'"
             case .dataCorrupted(let context):
-                detail = "\(path(context)) corrupted — \(context.debugDescription)"
+                detail = "\(path(context)) corrupted \(context.debugDescription)"
             @unknown default:
                 detail = error.localizedDescription
             }
@@ -137,7 +128,6 @@ struct AnthropicUsageClient: UsageFetching {
     }
 }
 
-/// Supports both forms permitted by HTTP: delay-seconds and an absolute HTTP-date.
 enum RetryAfterParser {
     static func delay(from value: String?, relativeTo now: Date) -> TimeInterval? {
         guard let value else { return nil }

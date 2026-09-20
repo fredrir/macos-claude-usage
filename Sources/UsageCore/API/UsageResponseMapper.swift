@@ -1,6 +1,5 @@
 import Foundation
 
-/// Converts wire DTOs into stable, ordered domain values.
 public struct UsageResponseMapper: Sendable {
     public init() {}
 
@@ -8,9 +7,6 @@ public struct UsageResponseMapper: Sendable {
         UsageSnapshot(buckets: buckets(from: response), fetchedAt: fetchedAt)
     }
 
-    /// Orders windows as session, all-model weekly, Fable, other scoped models, then legacy
-    /// top-level model windows. A matching `limits` entry takes precedence over its top-level
-    /// fallback.
     public func buckets(from response: UsageResponseDTO) -> [UsageBucket] {
         var result: [UsageBucket] = []
         var seen = Set<String>()

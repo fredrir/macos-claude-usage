@@ -1,6 +1,5 @@
 import Foundation
 
-/// Why a fetch is currently deferred.
 public enum PollingRestriction: String, Codable, Equatable, Sendable {
     case minimumSpacing
     case serverRateLimit
@@ -8,14 +7,11 @@ public enum PollingRestriction: String, Codable, Equatable, Sendable {
     case errorBackoff
 }
 
-/// Persisted scheduling state. Save the value returned by `recordingAttempt` before starting
-/// network work so a restart cannot bypass the minimum request spacing.
 public struct PollingState: Codable, Equatable, Sendable {
     public var lastAttemptAt: Date?
     public var lastSuccessAt: Date?
     public var nextAllowedAttemptAt: Date?
     public var restriction: PollingRestriction?
-    /// Delay to use for the next ordinary failure.
     public var errorBackoff: TimeInterval
 
     public init(
@@ -38,7 +34,6 @@ public enum PollingDecision: Equatable, Sendable {
     case deferred(until: Date, restriction: PollingRestriction)
 }
 
-/// Pure scheduling policy for usage requests.
 public struct PollingPolicy: Equatable, Sendable {
     public let minimumSpacing: TimeInterval
     public let retryAfterMargin: TimeInterval
@@ -69,8 +64,6 @@ public struct PollingPolicy: Equatable, Sendable {
         self.maximumErrorBackoff = maximumErrorBackoff
     }
 
-    /// Decides whether a request may begin. A future persisted `nextAllowedAttemptAt` is always
-    /// honored, including after process restart.
     public func decision(for state: PollingState, at now: Date) -> PollingDecision {
         guard let until = effectiveNextAllowedAttempt(for: state), now < until else {
             return .allowed
@@ -82,8 +75,6 @@ public struct PollingPolicy: Equatable, Sendable {
         )
     }
 
-    /// Records an attempt and establishes the minimum spacing immediately. Persist this state
-    /// before awaiting the request.
     public func recordingAttempt(in state: PollingState, at now: Date) -> PollingState {
         var updated = state
         updated.lastAttemptAt = now

@@ -1,11 +1,6 @@
 import Foundation
 import os
 
-/// Append-only log of what the fetcher actually did.
-///
-/// Without this, a menu bar item sitting on "—" is indistinguishable from a broken one: the
-/// rate limit windows are long enough that "waiting exactly as instructed" and "silently
-/// wedged" look identical from the outside.
 enum Log {
     private static let subsystem = "com.fredrir.ClaudeUsage"
     private static let logger = Logger(subsystem: subsystem, category: "usage")
@@ -35,7 +30,6 @@ enum Log {
         }
     }
 
-    /// Keeps the file from growing without bound on a long-lived agent process.
     private static func trimIfNeeded() {
         let limit = 256 * 1024
         guard

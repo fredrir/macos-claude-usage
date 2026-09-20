@@ -22,11 +22,6 @@ nonisolated enum KeychainError: LocalizedError, Sendable {
     }
 }
 
-/// Read/write access to the generic-password item Claude Code stores its OAuth tokens in.
-///
-/// The initial lookup is intentionally service-only so the app keeps working if Claude Code's
-/// account attribute changes. Every lookup returns the item's persistent reference, and updates
-/// use that reference so a write can never affect a different item sharing the service name.
 nonisolated enum Keychain {
     static let service = "Claude Code-credentials"
 
@@ -47,8 +42,6 @@ nonisolated enum Keychain {
         return try read(matching: query)
     }
 
-    /// Re-reads the exact item captured by `read()`. This is used immediately before a token
-    /// write so changes made while the network request was in flight can be detected.
     static func read(persistentReference: Data) throws -> Item {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

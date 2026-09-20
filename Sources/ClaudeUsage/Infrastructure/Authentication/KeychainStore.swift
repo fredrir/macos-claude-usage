@@ -1,7 +1,6 @@
 import Foundation
 import Security
 
-/// Represents authenticated OAuth credentials for a service.
 public struct AuthCredentials: Codable, Sendable, Equatable {
     public var accessToken: String
     public var refreshToken: String?
@@ -37,8 +36,6 @@ public struct AuthCredentials: Codable, Sendable, Equatable {
     }
 }
 
-/// Secure storage and retrieval of credentials in the macOS Keychain,
-/// with automatic migration/fallback for legacy Claude Code and Codex credentials.
 public enum KeychainStore: Sendable {
     public static let service = "ClaudeUsage-credentials"
 
@@ -50,7 +47,6 @@ public enum KeychainStore: Sendable {
     }
 
     public static func load(for account: String) throws -> AuthCredentials {
-        // 1. Try reading the app-owned credentials from Keychain
         if let data = try? readData(service: service, account: account) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -59,7 +55,6 @@ public enum KeychainStore: Sendable {
             }
         }
 
-        // 2. Fallback to legacy credential sources if app credentials not yet saved
         if account == "claude" {
             if let legacyCreds = tryLegacyClaudeCodeCredentials() {
                 return legacyCreds
@@ -84,8 +79,6 @@ public enum KeychainStore: Sendable {
             throw KeychainError.osStatus(status)
         }
     }
-
-    // MARK: - Low-level Keychain primitives
 
     public static func writeData(_ data: Data, service: String, account: String) throws {
         let query: [String: Any] = [
@@ -128,10 +121,7 @@ public enum KeychainStore: Sendable {
         return data
     }
 
-    // MARK: - Legacy Fallback Helpers
-
     private static func tryLegacyClaudeCodeCredentials() -> AuthCredentials? {
-        // Query "Claude Code-credentials"
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Claude Code-credentials",

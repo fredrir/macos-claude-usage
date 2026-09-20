@@ -1,6 +1,5 @@
 import Foundation
 
-/// Application environment configuration loaded from ProcessInfo and `.env` files.
 public struct AppEnvironment: Sendable {
     public static let shared = AppEnvironment()
 
@@ -26,7 +25,7 @@ public struct AppEnvironment: Sendable {
         values[key]
     }
 
-    public func string(for key: String, default defaultValue: String) -> String {
+    public func string(for key: String, default defaultValue: String = "") -> String {
         values[key] ?? defaultValue
     }
 

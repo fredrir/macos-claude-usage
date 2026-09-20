@@ -1,6 +1,5 @@
 import Foundation
 
-/// The purpose a usage window serves in the UI.
 public enum UsageRole: String, Codable, Equatable, Sendable {
     case session
     case weeklyAll
@@ -8,17 +7,12 @@ public enum UsageRole: String, Codable, Equatable, Sendable {
     case other
 }
 
-/// A normalized traffic-light state for a usage window.
 public enum UsageLevel: String, Codable, Equatable, Sendable {
     case normal
     case warning
     case critical
 }
 
-/// The usage service's assessment of a limit window.
-///
-/// Unknown values are preserved so adding a new server-side severity does not make an
-/// otherwise valid response undecodable.
 public enum UsageSeverity: Codable, Equatable, Sendable {
     case normal
     case warning
@@ -53,14 +47,12 @@ public enum UsageSeverity: Codable, Equatable, Sendable {
     }
 }
 
-/// A single usage limit window normalized for presentation.
 public struct UsageBucket: Identifiable, Equatable, Sendable {
     public typealias Role = UsageRole
     public typealias Level = UsageLevel
 
     public let id: String
     public let title: String
-    /// Percentage of the window consumed, clamped to `0 ... 100`.
     public let utilization: Double
     public let resetsAt: Date?
     public let severity: UsageSeverity?
@@ -82,17 +74,14 @@ public struct UsageBucket: Identifiable, Equatable, Sendable {
         self.role = role
     }
 
-    /// Percentage of the window still available, in `0 ... 100`.
     public var remaining: Double {
         100 - utilization
     }
 
-    /// Fraction of the window consumed, in `0 ... 1`.
     public var usedFraction: Double {
         utilization / 100
     }
 
-    /// Prefers the server-provided severity and falls back to remaining-capacity thresholds.
     public var level: UsageLevel {
         switch severity {
         case .critical: .critical

@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 
-/// Manages Codex (OpenAI) OAuth 2.0 PKCE authentication lifecycle and token refresh.
 public actor CodexAuthManager {
     public static let shared = CodexAuthManager()
 
@@ -91,7 +90,6 @@ public actor CodexAuthManager {
                 throw OAuthServerError.cancelled
             }
 
-            // Open user's default browser
             _ = await MainActor.run {
                 NSWorkspace.shared.open(authURL)
             }
@@ -102,7 +100,6 @@ public actor CodexAuthManager {
                 providerName: "Codex / ChatGPT"
             )
 
-            // Exchange code for tokens
             let creds = try await exchangeCode(code, verifier: verifier)
             try KeychainStore.save(creds, for: "codex")
             self.cached = creds

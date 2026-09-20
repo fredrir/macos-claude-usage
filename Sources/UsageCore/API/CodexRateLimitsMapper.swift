@@ -1,6 +1,5 @@
 import Foundation
 
-/// Converts Codex's dynamic quota windows into stable, ordered presentation values.
 public struct CodexRateLimitsMapper: Sendable {
     public init() {}
 
@@ -8,8 +7,6 @@ public struct CodexRateLimitsMapper: Sendable {
         UsageSnapshot(buckets: buckets(from: response), fetchedAt: fetchedAt)
     }
 
-    /// Orders the main Codex quota first, then model-specific quotas by display name. Within
-    /// each quota, the shorter window precedes the longer one.
     public func buckets(from response: CodexRateLimitsResponseDTO) -> [UsageBucket] {
         limits(from: response).flatMap { limit in
             windows(from: limit).compactMap { slot, window in
@@ -83,7 +80,6 @@ public struct CodexRateLimitsMapper: Sendable {
             utilization: percent,
             resetsAt: reset,
             severity: nil,
-            // Codex values must never become candidates for the Claude-only menu-bar gauges.
             role: .other
         )
     }

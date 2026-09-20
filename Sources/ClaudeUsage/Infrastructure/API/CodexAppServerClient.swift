@@ -12,9 +12,9 @@ enum CodexUsageError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            return "Codex not found — install the ChatGPT app or Codex CLI."
+            return "Codex not found install the ChatGPT app or Codex CLI."
         case .authenticationRequired:
-            return "Codex sign-in required — run `codex login` once."
+            return "Codex sign-in required run `codex login` once."
         case .timedOut:
             return "Codex did not return usage in time."
         case .processFailed:
@@ -36,10 +36,6 @@ protocol CodexUsageFetching: Sendable {
     func fetch() async throws -> CodexUsageFetchResult
 }
 
-/// Reads account limits through Codex's stable app-server protocol.
-///
-/// Codex remains the sole owner of its cached credentials and automatic token refresh. This app
-/// never reads, copies, logs, or independently rotates the user's OpenAI tokens.
 struct CodexAppServerClient: CodexUsageFetching {
     private static let responseID = 1
     private static let maximumResponseBytes = 1_048_576
@@ -77,8 +73,6 @@ struct CodexAppServerClient: CodexUsageFetching {
         }
     }
 
-    /// Decodes only the matching JSON-RPC response; initialization replies and notifications are
-    /// deliberately ignored.
     static func decodeResponseLine(_ data: Data) throws -> CodexUsageFetchResult? {
         let identifier: RPCIdentifier
         do {
@@ -122,7 +116,6 @@ struct CodexAppServerClient: CodexUsageFetching {
         process.arguments = ["app-server", "--stdio"]
         process.standardInput = input
         process.standardOutput = output
-        // App-server diagnostics can be verbose and must never become user-visible or fill a pipe.
         process.standardError = FileHandle.nullDevice
 
         do {
@@ -223,13 +216,13 @@ struct CodexAppServerClient: CodexUsageFetching {
     private static func decodingDetail(_ error: DecodingError) -> String {
         switch error {
         case .typeMismatch(let type, let context):
-            return "\(path(context)) is not \(type) — \(context.debugDescription)"
+            return "\(path(context)) is not \(type) \(context.debugDescription)"
         case .valueNotFound(let type, let context):
             return "\(path(context)) missing \(type)"
         case .keyNotFound(let key, let context):
             return "\(path(context)) has no key '\(key.stringValue)'"
         case .dataCorrupted(let context):
-            return "\(path(context)) corrupted — \(context.debugDescription)"
+            return "\(path(context)) corrupted \(context.debugDescription)"
         @unknown default:
             return error.localizedDescription
         }

@@ -2,7 +2,7 @@
 default:
     @just --list
 
-# Build, sign, and install ClaudeUsage.app
+# Build, sign, package, and install ClaudeUsage.app [ --no-install --no-package ]
 build *args:
     ./Scripts/build.sh {{args}}
 

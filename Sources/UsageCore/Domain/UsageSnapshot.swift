@@ -1,6 +1,5 @@
 import Foundation
 
-/// A coherent set of usage windows returned by one successful fetch.
 public struct UsageSnapshot: Equatable, Sendable {
     public let buckets: [UsageBucket]
     public let fetchedAt: Date

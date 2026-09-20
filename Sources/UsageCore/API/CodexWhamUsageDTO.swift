@@ -1,6 +1,5 @@
 import Foundation
 
-/// Direct DTO for ChatGPT/Codex's backend usage endpoint (`/backend-api/wham/usage`).
 public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
     public struct Window: Codable, Equatable, Sendable {
         public let usedPercent: Double?
@@ -126,7 +125,6 @@ public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
         case rateLimitReachedType = "rate_limit_reached_type"
     }
 
-    /// Converts this direct backend response into the canonical rate limits DTO.
     public func toRateLimitsResponse() -> CodexRateLimitsResponseDTO {
         let primaryWin = rateLimit?.primaryWindow.map {
             CodexRateLimitWindowDTO(

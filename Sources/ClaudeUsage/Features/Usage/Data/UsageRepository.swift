@@ -8,11 +8,6 @@ enum UsageRefreshOutcome: Sendable {
     case failed(String)
 }
 
-/// Owns request scheduling, disk persistence, and DTO-to-domain mapping.
-///
-/// The actor is intentionally independent of SwiftUI. Recording and saving an attempt before
-/// awaiting the network is the key invariant: quitting and reopening the app cannot bypass the
-/// endpoint's minimum spacing or a persisted server penalty.
 actor UsageRepository {
     private struct CachedPayload: Codable, Sendable {
         let fetchedAt: Date
@@ -45,8 +40,6 @@ actor UsageRepository {
         self.mapper = mapper
     }
 
-    /// Returns the last good response without making a request. An old cache is also used to
-    /// seed polling state when upgrading from versions that did not persist scheduling data.
     func loadCachedSnapshot() -> UsageSnapshot? {
         loadPollingStateIfNeeded()
 
@@ -86,7 +79,7 @@ actor UsageRepository {
             try persistPollingState()
         } catch {
             let message = "Could not save request scheduling state: \(error.localizedDescription)"
-            Log.write("fetch: refused before request — \(message)")
+            Log.write("fetch: refused before request \(message)")
             return .failed(message)
         }
 
@@ -117,7 +110,7 @@ actor UsageRepository {
 
             case .unauthorized:
                 return recordAuthenticationFailure(
-                    "Sign-in expired — run `claude` once to refresh."
+                    "Sign-in expired run `claude` once to refresh."
                 )
 
             case .http, .undecodable:
@@ -154,7 +147,7 @@ actor UsageRepository {
         do {
             pollingState = try JSONDecoder().decode(PollingState.self, from: data)
         } catch {
-            Log.write("polling state: ignored unreadable file — \(error.localizedDescription)")
+            Log.write("polling state: ignored unreadable file \(error.localizedDescription)")
         }
     }
 
@@ -167,7 +160,7 @@ actor UsageRepository {
         do {
             try persistPollingState()
         } catch {
-            Log.write("polling state: save failed after \(context) — \(error.localizedDescription)")
+            Log.write("polling state: save failed after \(context) \(error.localizedDescription)")
         }
     }
 
@@ -177,7 +170,7 @@ actor UsageRepository {
             let encoded = try JSONEncoder().encode(payload)
             try encoded.write(to: cacheURL, options: .atomic)
         } catch {
-            Log.write("cache: save failed — \(error.localizedDescription)")
+            Log.write("cache: save failed \(error.localizedDescription)")
         }
     }
 }

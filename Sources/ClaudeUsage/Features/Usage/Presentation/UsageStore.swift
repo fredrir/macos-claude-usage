@@ -57,7 +57,6 @@ final class UsageStore: ObservableObject {
         pollInterval = stored > 0 ? stored : 30 * 60
     }
 
-    /// Fixed contents and no networking or timers for deterministic UI rendering.
     init(
         fixture buckets: [UsageBucket],
         codexBuckets: [UsageBucket] = [],
@@ -96,8 +95,6 @@ final class UsageStore: ObservableObject {
         timer?.tolerance = 10
     }
 
-    /// Opening the dropdown may top up old data, but the repository remains the authority on
-    /// persisted spacing and server penalties.
     func refreshIfStale() {
         let threshold = max(Self.minimumSpacing, pollInterval / 2)
         if needsRefresh(lastUpdated: lastUpdated, threshold: threshold)
@@ -181,7 +178,6 @@ final class UsageStore: ObservableObject {
     }
 
     private func tick() {
-        // Reset and retry countdowns are derived values, so notify even without new usage data.
         objectWillChange.send()
 
         if needsRefresh(lastUpdated: lastUpdated, threshold: pollInterval)
@@ -210,7 +206,6 @@ final class UsageStore: ObservableObject {
         if let cachedCodex { applyCodex(cachedCodex) }
     }
 
-    /// Both providers fetch concurrently and each result is applied as soon as it completes.
     private func performRefresh(manual: Bool) async {
         enum ProviderResult: Sendable {
             case claude(UsageRefreshOutcome)
@@ -245,7 +240,7 @@ final class UsageStore: ObservableObject {
             apply(snapshot)
             status = .ok
             Log.write(
-                "fetch: 200, \(buckets.count) window(s) — "
+                "fetch: 200, \(buckets.count) window(s)"
                     + buckets.map {
                         "\($0.title) \(Int($0.remaining.rounded()))% left"
                     }.joined(separator: ", ")
@@ -258,12 +253,12 @@ final class UsageStore: ObservableObject {
             case .authentication:
                 if case .authExpired = status {
                 } else {
-                    status = .authExpired("Sign-in unavailable — retrying shortly.")
+                    status = .authExpired("Sign-in unavailable retrying shortly.")
                 }
             case .errorBackoff:
                 if case .failed = status {
                 } else {
-                    status = .failed("Temporary error — waiting before retrying.")
+                    status = .failed("Temporary error waiting before retrying.")
                 }
             case .minimumSpacing:
                 status = .throttled(until: until)
@@ -272,11 +267,11 @@ final class UsageStore: ObservableObject {
 
         case .authenticationFailed(let message):
             status = .authExpired(message)
-            Log.write("fetch: authentication failed — \(message)")
+            Log.write("fetch: authentication failed \(message)")
 
         case .failed(let message):
             status = .failed(message)
-            Log.write("fetch: failed — \(message)")
+            Log.write("fetch: failed \(message)")
         }
     }
 
@@ -286,7 +281,7 @@ final class UsageStore: ObservableObject {
             applyCodex(snapshot)
             codexStatus = .ok
             Log.write(
-                "codex fetch: success, \(codexBuckets.count) window(s) — "
+                "codex fetch: success, \(codexBuckets.count) window(s)"
                     + codexBuckets.map {
                         "\($0.title) \(Int($0.remaining.rounded()))% left"
                     }.joined(separator: ", ")
@@ -299,12 +294,12 @@ final class UsageStore: ObservableObject {
             case .authentication:
                 if case .authExpired = codexStatus {
                 } else {
-                    codexStatus = .authExpired("Codex sign-in unavailable — retrying later.")
+                    codexStatus = .authExpired("Codex sign-in unavailable retrying later.")
                 }
             case .errorBackoff:
                 if case .failed = codexStatus {
                 } else {
-                    codexStatus = .failed("Codex temporarily unavailable — waiting before retrying.")
+                    codexStatus = .failed("Codex temporarily unavailable waiting before retrying.")
                 }
             case .minimumSpacing:
                 codexStatus = .throttled(until: until)
@@ -313,11 +308,11 @@ final class UsageStore: ObservableObject {
 
         case .authenticationFailed(let message):
             codexStatus = .authExpired(message)
-            Log.write("codex fetch: authentication failed — \(message)")
+            Log.write("codex fetch: authentication failed \(message)")
 
         case .failed(let message):
             codexStatus = .failed(message)
-            Log.write("codex fetch: failed — \(message)")
+            Log.write("codex fetch: failed \(message)")
         }
     }
 
@@ -373,7 +368,7 @@ extension UsageStore {
             return nil
         case .rateLimited(let until):
             guard let minutes = minutesUntil(until) else { return "Retrying…" }
-            return "Rate limited — retrying in \(minutes)m"
+            return "Rate limited retrying in \(minutes)m"
         case .authExpired(let message), .failed(let message):
             return message
         }

@@ -36,7 +36,6 @@ public enum OAuthServerError: LocalizedError, Sendable {
     }
 }
 
-/// Internal state box allowing safe nonisolated deinit cleanup on macOS 14+.
 private final class ServerState: @unchecked Sendable {
     var listeningSocket: Int32 = -1
     var boundPort: UInt16 = 0
@@ -49,14 +48,11 @@ private final class ServerState: @unchecked Sendable {
     }
 }
 
-/// A lightweight, pure-Swift loopback HTTP server that receives OAuth 2.0 authorization callbacks.
 public actor OAuthCallbackServer {
     private let state = ServerState()
 
     public init() {}
 
-    /// Starts listening on loopback (`127.0.0.1`) on the preferred port (or an ephemeral port if `port == 0`).
-    /// Returns the port the server bound to.
     public func start(preferredPort: UInt16 = 0) throws -> UInt16 {
         stopListening()
 
@@ -109,8 +105,6 @@ public actor OAuthCallbackServer {
         return state.boundPort
     }
 
-    /// Awaits an authorization callback matching `expectedPath` and `expectedState`.
-    /// Sends a response page to the browser and returns the authorization code.
     public func waitForAuthorizationCode(
         expectedPath: String,
         expectedState: String?,
@@ -134,7 +128,6 @@ public actor OAuthCallbackServer {
                 throw OAuthServerError.timedOut
             }
 
-            // Use poll with a 250ms timeout to remain responsive to cancellation
             var pfd = pollfd(fd: state.listeningSocket, events: Int16(POLLIN), revents: 0)
             let pollResult = poll(&pfd, 1, 250)
 
@@ -145,12 +138,10 @@ public actor OAuthCallbackServer {
             }
 
             if pollResult == 0 {
-                // Timeout on this tick, yield and check cancellation / deadline
                 await Task.yield()
                 continue
             }
 
-            // A connection is waiting
             var clientAddr = sockaddr_in()
             var clientLen = socklen_t(MemoryLayout<sockaddr_in>.size)
             let clientFd = withUnsafeMutablePointer(to: &clientAddr) {
@@ -186,8 +177,6 @@ public actor OAuthCallbackServer {
         }
     }
 
-    // MARK: - Private Connection Handling
-
     private func handleClientConnection(
         clientFd: Int32,
         expectedPath: String,
@@ -217,13 +206,11 @@ public actor OAuthCallbackServer {
             return nil
         }
 
-        // Ignore favicon requests without completing the auth flow
         if components.path == "/favicon.ico" {
             sendResponse(to: clientFd, status: "404 Not Found", body: "")
             return nil
         }
 
-        // Validate the path matches what was configured (e.g., /callback or /auth/callback)
         guard components.path == expectedPath else {
             sendResponse(to: clientFd, status: "404 Not Found", body: "Not Found")
             return nil

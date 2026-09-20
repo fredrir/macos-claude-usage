@@ -1,6 +1,5 @@
 import Foundation
 
-/// One quota window returned by Codex's app-server account API.
 public struct CodexRateLimitWindowDTO: Codable, Equatable, Sendable {
     public let usedPercent: Double?
     public let windowDurationMins: Int?
@@ -17,7 +16,6 @@ public struct CodexRateLimitWindowDTO: Codable, Equatable, Sendable {
     }
 }
 
-/// A main or model-specific pair of Codex quota windows.
 public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
     public let limitId: String
     public let limitName: String?
@@ -62,10 +60,6 @@ public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
     }
 }
 
-/// Result payload from the stable `account/rateLimits/read` app-server method.
-///
-/// The keyed collection is authoritative when present. `rateLimits` is retained as the
-/// backward-compatible fallback for older Codex releases.
 public struct CodexRateLimitsResponseDTO: Codable, Equatable, Sendable {
     public let rateLimits: CodexRateLimitDTO?
     public let rateLimitsByLimitId: [String: CodexRateLimitDTO]?

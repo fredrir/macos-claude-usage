@@ -1,12 +1,8 @@
 import AppKit
 import UsageCore
 
-/// Colours come from dynamic `NSColor`s so they resolve correctly against whichever appearance
-/// AppKit has current when the image is drawn; the SwiftUI menu-bar label re-renders under the
-/// matching appearance so a light/dark switch never leaves a stale bitmap behind.
 enum GaugeRenderer {
     struct Item {
-        /// Percentage of the window still available, 0–100.
         let remaining: Double
         let level: UsageLevel
 
@@ -79,9 +75,8 @@ enum GaugeRenderer {
         (string as NSString).size(withAttributes: [.font: font])
     }
 
-    /// Shown before the first successful fetch, or when every window came back null.
     private static func placeholder() -> NSImage {
-        let label = "—"
+        let label = ""
         let size = textSize(label)
         let image = NSImage(
             size: NSSize(width: max(18, ceil(size.width) + 8), height: imageHeight),

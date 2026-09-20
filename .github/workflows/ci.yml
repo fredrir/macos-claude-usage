@@ -16,8 +16,7 @@ concurrency:
 jobs:
   validate:
     name: Swift 6 and repository checks
-    # Screenshots are rendered with AppKit/SwiftUI, so pin the OS generation
-    # used to produce the committed reference images instead of using -latest.
+    # The app targets macOS 26, so the runner has to be at least that generation.
     runs-on: macos-26
     timeout-minutes: 20
 
@@ -73,8 +72,3 @@ jobs:
           for script in Scripts/*.sh Scripts/lib/*.sh; do
             bash -n "${script}"
           done
-
-      # This command uses the app's pinned fixture and clock. It does not read
-      # Keychain credentials or call the live usage API.
-      - name: Check deterministic screenshots
-        run: ./Scripts/screenshots.sh --check

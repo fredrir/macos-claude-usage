@@ -2,15 +2,15 @@ name: ClaudeUsage
 options:
   createIntermediateGroups: true
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
   minimumXcodeGenVersion: "2.45.4"
-  xcodeVersion: "16.0"
+  xcodeVersion: "27.0"
 configs:
   Debug: debug
   Release: release
 settings:
   base:
-    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
     SWIFT_VERSION: "6.0"
     ENABLE_HARDENED_RUNTIME: true
     DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}

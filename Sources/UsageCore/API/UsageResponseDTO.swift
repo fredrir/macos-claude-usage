@@ -76,11 +76,6 @@ public struct LimitEntryDTO: Decodable, Equatable, Sendable {
     }
 }
 
-/// Wire representation of the usage response.
-///
-/// At least one known root key must be present. A present key whose value is `null` is a
-/// recognized response, while `{}` and unknown-only objects are rejected. This prevents a
-/// silent schema change from replacing a valid cached snapshot with an empty one.
 public struct UsageResponseDTO: Decodable, Equatable, Sendable {
     public let fiveHour: UsageWindowDTO?
     public let sevenDay: UsageWindowDTO?

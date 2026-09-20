@@ -1,7 +1,6 @@
 import Foundation
 import UsageCore
 
-/// Network adapter for ChatGPT/Codex's backend usage endpoint (`/backend-api/wham/usage`).
 struct CodexUsageClient: CodexUsageFetching {
     static var endpoint: URL {
         AppEnvironment.shared.openAIEndpoint
@@ -29,7 +28,6 @@ struct CodexUsageClient: CodexUsageFetching {
     }
 
     func fetch() async throws -> CodexUsageFetchResult {
-        // Development escape hatch: test against a fixture
         if let fixture = ProcessInfo.processInfo.environment["CODEX_USAGE_FIXTURE"] {
             let raw = try Data(contentsOf: URL(fileURLWithPath: fixture))
             return CodexUsageFetchResult(response: try Self.decode(raw), raw: raw)

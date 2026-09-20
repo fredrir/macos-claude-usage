@@ -17,8 +17,6 @@ struct SystemLaunchAtLoginService: LaunchAtLoginServicing {
         SMAppService.mainApp.status == .enabled
     }
 
-    /// Throws rather than swallowing: an ad-hoc signed bundle outside `/Applications` can be
-    /// refused by `SMAppService`, and the dropdown surfaces that instead of silently no-oping.
     func setEnabled(_ enabled: Bool) throws {
         if enabled {
             try SMAppService.mainApp.register()

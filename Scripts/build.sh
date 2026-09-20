@@ -10,16 +10,21 @@ cd "${REPO_ROOT}"
 BUILD_BIN_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"
 INSTALL_DIR="${HOME}/Applications"
+OUTPUT_DIR="${REPO_ROOT}/dist"
 INSTALL=true
+PACKAGE=true
 ADHOC=false
 SIGNING_IDENTITY="${CLAUDE_USAGE_SIGNING_IDENTITY:-${APPLE_DEVELOPER_ID_APPLICATION:-}}"
 
 usage() {
   cat <<EOF
-Usage: Scripts/build.sh [--no-install] [--signing-identity IDENTITY] [--adhoc]
+Usage: Scripts/build.sh [--no-install] [--no-package] [--signing-identity IDENTITY] [--adhoc]
+
+Builds, signs, packages, and installs ${APP_BUNDLE}.
 
 Options:
   --no-install                  Leave ${APP_BUNDLE} in the repository
+  --no-package                  Skip the .zip in dist/
   --signing-identity IDENTITY   Use this codesigning identity instead of auto-detecting
   --adhoc                       Use an unstable ad-hoc signature (Keychain may ask again)
   -h, --help                    Show this help
@@ -30,6 +35,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
   --no-install)
     INSTALL=false
+    shift
+    ;;
+  --no-package)
+    PACKAGE=false
     shift
     ;;
   --signing-identity)
@@ -65,6 +74,8 @@ if [[ -z "${SIGNING_IDENTITY}" ]]; then
   die "no Developer ID Application or Apple Development codesigning identity was found"
 fi
 
+require_commands swift codesign ditto plutil
+
 log "Building (release)"
 swift build -c release --product "${APP_NAME}"
 
@@ -75,7 +86,10 @@ cp "${BUILD_BIN_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp Resources/Info.plist "${APP_BUNDLE}/Contents/Info.plist"
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   log "Embedding .env into bundle"
-  cp "${REPO_ROOT}/.env" "${APP_BUNDLE}/Contents/Resources/.env"
+  grep -E '^(OPENAI_|CLAUDE_)' "${REPO_ROOT}/.env" >"${APP_BUNDLE}/Contents/Resources/.env" || true
+  if [[ ! -s "${APP_BUNDLE}/Contents/Resources/.env" ]]; then
+    rm -f "${APP_BUNDLE}/Contents/Resources/.env"
+  fi
 fi
 
 log "Signing"
@@ -91,6 +105,20 @@ codesign \
   --timestamp=none \
   "${APP_BUNDLE}"
 codesign --verify --strict "${APP_BUNDLE}"
+
+if [[ "${PACKAGE}" == true ]]; then
+  VERSION="$(plutil -extract CFBundleShortVersionString raw "${APP_BUNDLE}/Contents/Info.plist")"
+  if [[ -z "${VERSION}" || "${VERSION}" == *[!A-Za-z0-9._-]* ]]; then
+    die "CFBundleShortVersionString is not safe for an artifact name: ${VERSION}"
+  fi
+
+  ARCHIVE_NAME="${APP_NAME}-${VERSION}-dev.zip"
+  log "Packaging ${ARCHIVE_NAME}"
+  mkdir -p "${OUTPUT_DIR}"
+  rm -f "${OUTPUT_DIR:?}/${ARCHIVE_NAME}"
+  ditto -c -k --sequesterRsrc --keepParent "${APP_BUNDLE}" "${OUTPUT_DIR}/${ARCHIVE_NAME}"
+  note "${OUTPUT_DIR}/${ARCHIVE_NAME}"
+fi
 
 if [[ "${INSTALL}" != true ]]; then
   log "Built ${REPO_ROOT}/${APP_BUNDLE} (not installed)"

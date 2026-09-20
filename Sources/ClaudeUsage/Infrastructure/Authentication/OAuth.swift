@@ -21,8 +21,6 @@ nonisolated enum AuthError: LocalizedError, Sendable {
     }
 }
 
-/// The subset of the Keychain payload we care about, plus the raw JSON so unknown fields
-/// (`scopes`, `subscriptionType`, `rateLimitTier`, …) survive a write-back untouched.
 nonisolated struct Credentials: Sendable {
     static let containerKey = "claudeAiOauth"
 
@@ -92,14 +90,9 @@ nonisolated struct Credentials: Sendable {
         expiresAt.timeIntervalSinceNow <= window
     }
 
-    /// Re-reads and updates the exact Keychain item this value came from. A changed token pair
-    /// means another process won the refresh race, in which case its credentials are adopted and
-    /// the refresh response is deliberately discarded. Unknown JSON fields are copied from the
-    /// latest Keychain value before the refreshed fields are merged.
     @discardableResult
     mutating func applyAndPersist(_ refreshed: TokenResponse) throws -> Bool {
         guard let persistentReference else {
-            // App-owned Keychain storage
             let newExpiry = Date.now.addingTimeInterval(refreshed.expiresIn)
             var latest = self
             latest.accessToken = refreshed.accessToken
@@ -121,8 +114,6 @@ nonisolated struct Credentials: Sendable {
         do {
             item = try Keychain.read(persistentReference: persistentReference)
         } catch KeychainError.notFound {
-            // Claude Code may have replaced rather than updated the item. Capture the replacement
-            // precisely before deciding whether the response is still safe to persist.
             item = try Keychain.read()
         }
 
@@ -182,24 +173,6 @@ nonisolated struct TokenResponse: Decodable, Sendable {
     }
 }
 
-/// Hands out a usable access token, refreshing only when genuinely necessary.
-///
-/// Claude Code refreshes this same Keychain item whenever it runs, and refresh tokens rotate.
-/// Rotating one out from under a running Claude Code session would break its next refresh, so
-/// this deliberately does the least possible work:
-///
-/// 1. Serve polls from the last known credentials, so a steady state costs no Keychain reads.
-/// 2. Refresh only once the token is actually expired (or within `nearExpiryWindow`).
-/// 3. Re-read the Keychain under the lock first — if another process already refreshed, use that.
-/// 4. Collapse concurrent in-process callers onto a single refresh task.
-/// 5. Serialise cooperating copies of this app with `flock`.
-///
-/// A cached copy can be stale when Claude Code rotates the token; the 401 retry path forces a
-/// reload, so staleness costs one rejected request rather than a wrong answer.
-///
-/// The lock is app-owned and advisory: Claude Code does not participate in it. The exact
-/// Keychain item is therefore re-read again before every write to detect external rotation and
-/// reduce (but not eliminate) the remaining compare/write race with non-cooperating processes.
 actor AuthManager {
     static let shared = AuthManager()
 
@@ -326,22 +299,14 @@ actor AuthManager {
         return loaded
     }
 
-    /// Refreshes after a 401 only if the rejected token is still current. If another process
-    /// replaced it while this caller was waiting for the lock, the replacement is used directly
-    /// instead of rotating the refresh token a second time.
     func forceRefresh(rejectedAccessToken: String) async throws -> String {
         try await refreshLocked(reason: .rejectedAccessToken(rejectedAccessToken))
     }
 
-    /// Collapses concurrent callers onto one refresh. Without this, actor reentrancy across the
-    /// network `await` would let a second caller reach the file lock and stall the executor.
     private func refreshLocked(reason: RefreshReason) async throws -> String {
         if let operation = inFlight {
             let token = try await operation.task.value
 
-            // A refresh for a different reason can legitimately return the token this caller
-            // just had rejected (for example, an expiry check can decide it is still fresh).
-            // In that case start, or join, a refresh that specifically handles this rejection.
             if operation.reason != reason,
                 case .rejectedAccessToken(let rejectedAccessToken) = reason,
                 token == rejectedAccessToken
@@ -370,7 +335,6 @@ actor AuthManager {
         guard try await lock.acquire(timeout: 30) else { throw AuthError.refreshBusy }
         defer { lock.unlock() }
 
-        // A cooperating app process may have refreshed while this task waited for the lock.
         var credentials = try currentCredentials(reloading: true)
         switch reason {
         case .expiring:
@@ -422,7 +386,6 @@ actor AuthManager {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            // Do not surface or persist arbitrary response bodies from the credential endpoint.
             throw AuthError.refreshFailed(status: status)
         }
         return try JSONDecoder().decode(TokenResponse.self, from: data)
@@ -440,8 +403,6 @@ nonisolated enum FileLockError: LocalizedError, Sendable {
     }
 }
 
-/// An advisory lock shared only by cooperating copies of this app. It does not coordinate with
-/// Claude Code or any other process that does not explicitly acquire the same lock file.
 nonisolated final class FileLock: Sendable {
     private let descriptor: Int32
 
@@ -456,8 +417,6 @@ nonisolated final class FileLock: Sendable {
         }
     }
 
-    /// Polls non-blockingly so a lock held by another process suspends this task rather than
-    /// parking the thread it happens to be running on.
     func acquire(timeout: TimeInterval) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(timeout))
