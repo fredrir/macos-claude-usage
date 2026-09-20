@@ -1,156 +1,42 @@
-import AppKit
 import Foundation
 
 nonisolated enum AuthError: LocalizedError, Sendable {
     case malformedCredentials
     case refreshTokenExpired
     case refreshBusy
-    case refreshFailed(status: Int)
+    case refreshFailed(status: Int, detail: String?)
 
     var errorDescription: String? {
         switch self {
         case .malformedCredentials:
-            return "Claude Code credentials in the Keychain are not in the expected format."
+            return "The identity provider returned a sign-in response in an unexpected format."
         case .refreshTokenExpired:
-            return "Sign-in has fully expired. Run `claude` once to sign in again."
+            return "The sign-in expired — sign in again from Settings."
         case .refreshBusy:
-            return "Another process is refreshing the sign-in. Will retry shortly."
-        case .refreshFailed(let status):
-            return "Token refresh failed (HTTP \(status))."
+            return "Another process is refreshing the sign-in — will retry shortly."
+        case .refreshFailed(let status, let detail):
+            guard let detail else { return "The sign-in service returned HTTP \(status)." }
+            return "The sign-in service returned HTTP \(status): \(detail)"
         }
     }
 }
 
-nonisolated struct Credentials: Sendable {
-    static let containerKey = "claudeAiOauth"
-
-    var accessToken: String
-    var refreshToken: String
-    var expiresAt: Date
-    var refreshTokenExpiresAt: Date?
-
-    private var encodedRoot: Data
-    private var persistentReference: Data?
-
-    init(data: Data) throws {
-        try self.init(data: data, persistentReference: nil)
-    }
-
-    private init(data: Data, persistentReference: Data?) throws {
-        guard
-            let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let oauth = root[Self.containerKey] as? [String: Any],
-            let accessToken = oauth["accessToken"] as? String,
-            let refreshToken = oauth["refreshToken"] as? String,
-            let expiresAtMillis = oauth["expiresAt"] as? Double
-        else {
-            throw AuthError.malformedCredentials
+nonisolated enum TokenErrorBody {
+    static func describe(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let text = String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : String(text.prefix(200))
         }
 
-        self.encodedRoot = data
-        self.persistentReference = persistentReference
-        self.accessToken = accessToken
-        self.refreshToken = refreshToken
-        self.expiresAt = Date(timeIntervalSince1970: expiresAtMillis / 1000)
-        if let millis = oauth["refreshTokenExpiresAt"] as? Double {
-            self.refreshTokenExpiresAt = Date(timeIntervalSince1970: millis / 1000)
-        }
-    }
-
-    init(authCredentials: AuthCredentials) throws {
-        guard let refreshToken = authCredentials.refreshToken else {
-            throw AuthError.malformedCredentials
-        }
-        self.accessToken = authCredentials.accessToken
-        self.refreshToken = refreshToken
-        self.expiresAt = authCredentials.expiresAt ?? Date().addingTimeInterval(3600)
-        self.refreshTokenExpiresAt = nil
-        self.persistentReference = nil
-        let root: [String: Any] = [
-            Self.containerKey: [
-                "accessToken": authCredentials.accessToken,
-                "refreshToken": refreshToken,
-                "expiresAt": (authCredentials.expiresAt ?? Date().addingTimeInterval(3600)).timeIntervalSince1970 * 1000,
-            ]
-        ]
-        self.encodedRoot = (try? JSONSerialization.data(withJSONObject: root)) ?? Data()
-    }
-
-    static func load() throws -> Credentials {
-        if let appAuth = try? KeychainStore.load(for: "claude") {
-            return try Credentials(authCredentials: appAuth)
-        }
-        let item = try Keychain.read()
-        return try Credentials(data: item.data, persistentReference: item.persistentReference)
-    }
-
-    var isExpired: Bool { expiresAt <= Date.now }
-
-    func isExpiring(within window: TimeInterval) -> Bool {
-        expiresAt.timeIntervalSinceNow <= window
-    }
-
-    @discardableResult
-    mutating func applyAndPersist(_ refreshed: TokenResponse) throws -> Bool {
-        guard let persistentReference else {
-            let newExpiry = Date.now.addingTimeInterval(refreshed.expiresIn)
-            var latest = self
-            latest.accessToken = refreshed.accessToken
-            if let newRefresh = refreshed.refreshToken {
-                latest.refreshToken = newRefresh
-            }
-            latest.expiresAt = newExpiry
-            let updatedAuth = AuthCredentials(
-                accessToken: latest.accessToken,
-                refreshToken: latest.refreshToken,
-                expiresAt: newExpiry
-            )
-            try KeychainStore.save(updatedAuth, for: "claude")
-            self = latest
-            return true
+        if let nested = json["error"] as? [String: Any] {
+            let parts = [nested["type"], nested["message"]].compactMap { $0 as? String }
+            return parts.isEmpty ? nil : parts.joined(separator: ": ")
         }
 
-        let item: Keychain.Item
-        do {
-            item = try Keychain.read(persistentReference: persistentReference)
-        } catch KeychainError.notFound {
-            item = try Keychain.read()
-        }
-
-        var latest = try Credentials(
-            data: item.data,
-            persistentReference: item.persistentReference
-        )
-        guard latest.accessToken == accessToken, latest.refreshToken == refreshToken else {
-            self = latest
-            return false
-        }
-
-        guard
-            var root = try JSONSerialization.jsonObject(with: latest.encodedRoot) as? [String: Any],
-            var oauth = root[Self.containerKey] as? [String: Any]
-        else {
-            throw AuthError.malformedCredentials
-        }
-
-        latest.accessToken = refreshed.accessToken
-        oauth["accessToken"] = refreshed.accessToken
-
-        if let newRefresh = refreshed.refreshToken {
-            latest.refreshToken = newRefresh
-            oauth["refreshToken"] = newRefresh
-        }
-
-        let newExpiry = Date.now.addingTimeInterval(refreshed.expiresIn)
-        latest.expiresAt = newExpiry
-        oauth["expiresAt"] = newExpiry.timeIntervalSince1970 * 1000
-
-        root[Self.containerKey] = oauth
-        let data = try JSONSerialization.data(withJSONObject: root)
-        try Keychain.write(data, persistentReference: item.persistentReference)
-        latest.encodedRoot = data
-        self = latest
-        return true
+        guard let code = json["error"] as? String else { return nil }
+        guard let description = json["error_description"] as? String else { return code }
+        return "\(code): \(description)"
     }
 }
 
@@ -176,12 +62,22 @@ nonisolated struct TokenResponse: Decodable, Sendable {
 actor AuthManager {
     static let shared = AuthManager()
 
+    private static let scopes = [
+        "user:file_upload",
+        "user:inference",
+        "user:mcp_servers",
+        "user:plugins",
+        "user:profile",
+        "user:sessions:claude_code",
+    ]
+
     private let tokenURL: URL
     private let clientID: String
     private let authorizeURL: URL
     private let nearExpiryWindow: TimeInterval = 120
-    private var inFlight: RefreshOperation?
-    private var cached: Credentials?
+    private var inFlightRefresh: RefreshOperation?
+    private var inFlightSignIn: Task<AuthCredentials, Error>?
+    private var cached: AuthCredentials?
 
     init(environment: AppEnvironment = .shared) {
         self.tokenURL = environment.claudeTokenURL
@@ -190,96 +86,32 @@ actor AuthManager {
     }
 
     var isSignedIn: Bool {
-        (try? currentCredentials(reloading: false)) != nil
-    }
-
-    func signOut() throws {
-        try KeychainStore.delete(for: "claude")
-        cached = nil
+        (try? currentCredentials(reloading: false))?.isUsable ?? false
     }
 
     @discardableResult
     func startSignIn() async throws -> AuthCredentials {
-        let server = OAuthCallbackServer()
-        let port = try await server.start(preferredPort: 0)
-        let redirectURI = "http://localhost:\(port)/callback"
-
-        let verifier = PKCE.generateCodeVerifier()
-        let challenge = PKCE.generateCodeChallenge(from: verifier)
-        let state = PKCE.generateState()
-
-        var components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)!
-        components.queryItems = [
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
-            URLQueryItem(name: "scope", value: "user:file_upload user:inference user:mcp_servers user:plugins user:profile user:sessions:claude_code"),
-            URLQueryItem(name: "code_challenge", value: challenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "state", value: state),
-        ]
-
-        guard let authURL = components.url else {
-            throw OAuthServerError.cancelled
+        if let inFlightSignIn {
+            return try await inFlightSignIn.value
         }
 
-        _ = await MainActor.run {
-            NSWorkspace.shared.open(authURL)
+        let task = Task { try await performSignIn() }
+        inFlightSignIn = task
+        defer {
+            if inFlightSignIn == task { inFlightSignIn = nil }
         }
-
-        let code = try await server.waitForAuthorizationCode(
-            expectedPath: "/callback",
-            expectedState: state,
-            providerName: "Claude"
-        )
-
-        let creds = try await exchangeCode(
-            code: code,
-            verifier: verifier,
-            redirectURI: redirectURI,
-            state: state
-        )
-        try KeychainStore.save(creds, for: "claude")
-        cached = try? currentCredentials(reloading: true)
-        return creds
+        return try await task.value
     }
 
-    private func exchangeCode(
-        code: String,
-        verifier: String,
-        redirectURI: String,
-        state: String
-    ) async throws -> AuthCredentials {
-        var request = URLRequest(url: tokenURL)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+    func cancelSignIn() {
+        inFlightSignIn?.cancel()
+        inFlightSignIn = nil
+    }
 
-        var components = URLComponents()
-        components.queryItems = [
-            URLQueryItem(name: "grant_type", value: "authorization_code"),
-            URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "code", value: code),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
-            URLQueryItem(name: "code_verifier", value: verifier),
-            URLQueryItem(name: "state", value: state),
-        ]
-        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            throw AuthError.refreshFailed(status: status)
-        }
-
-        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
-        let expiresAt = Date().addingTimeInterval(tokenResponse.expiresIn)
-        return AuthCredentials(
-            accessToken: tokenResponse.accessToken,
-            refreshToken: tokenResponse.refreshToken,
-            expiresAt: expiresAt
-        )
+    func signOut() throws {
+        cancelSignIn()
+        cached = nil
+        try KeychainStore.delete(for: .claude)
     }
 
     func accessToken() async throws -> String {
@@ -290,29 +122,65 @@ actor AuthManager {
         return try await refreshLocked(reason: .expiring)
     }
 
-    private func currentCredentials(reloading: Bool) throws -> Credentials {
-        if !reloading, let cached {
-            return cached
-        }
-        let loaded = try Credentials.load()
-        cached = loaded
-        return loaded
-    }
-
     func forceRefresh(rejectedAccessToken: String) async throws -> String {
         try await refreshLocked(reason: .rejectedAccessToken(rejectedAccessToken))
     }
 
+    private func performSignIn() async throws -> AuthCredentials {
+        let flow = OAuthBrowserFlow(
+            providerName: "Claude",
+            authorizeURL: authorizeURL,
+            clientID: clientID,
+            scopes: Self.scopes,
+            redirect: .ephemeralPort(path: "/callback")
+        )
+
+        let authorization = try await flow.authorize()
+        let credentials = try await exchangeCode(authorization)
+        try KeychainStore.save(credentials, for: .claude)
+        cached = credentials
+        return credentials
+    }
+
+    private func currentCredentials(reloading: Bool) throws -> AuthCredentials {
+        if !reloading, let cached {
+            return cached
+        }
+        let loaded = try KeychainStore.load(for: .claude)
+        cached = loaded
+        return loaded
+    }
+
+    private func exchangeCode(
+        _ authorization: OAuthBrowserFlow.Authorization
+    ) async throws -> AuthCredentials {
+        let response = try await requestToken(form: [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "code", value: authorization.code),
+            URLQueryItem(name: "redirect_uri", value: authorization.redirectURI),
+            URLQueryItem(name: "code_verifier", value: authorization.verifier),
+            URLQueryItem(name: "state", value: authorization.state),
+        ])
+
+        return AuthCredentials(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            expiresAt: Date.now.addingTimeInterval(response.expiresIn),
+            scopes: Self.scopes
+        )
+    }
+
     private func refreshLocked(reason: RefreshReason) async throws -> String {
-        if let operation = inFlight {
+        if let operation = inFlightRefresh {
             let token = try await operation.task.value
 
             if operation.reason != reason,
                 case .rejectedAccessToken(let rejectedAccessToken) = reason,
                 token == rejectedAccessToken
             {
-                if inFlight?.id == operation.id {
-                    inFlight = nil
+                if inFlightRefresh?.id == operation.id {
+                    inFlightRefresh = nil
                 }
                 return try await refreshLocked(reason: reason)
             }
@@ -321,10 +189,10 @@ actor AuthManager {
 
         let id = UUID()
         let task = Task { try await performRefresh(reason: reason) }
-        inFlight = RefreshOperation(id: id, reason: reason, task: task)
+        inFlightRefresh = RefreshOperation(id: id, reason: reason, task: task)
         defer {
-            if inFlight?.id == id {
-                inFlight = nil
+            if inFlightRefresh?.id == id {
+                inFlightRefresh = nil
             }
         }
         return try await task.value
@@ -335,7 +203,7 @@ actor AuthManager {
         guard try await lock.acquire(timeout: 30) else { throw AuthError.refreshBusy }
         defer { lock.unlock() }
 
-        var credentials = try currentCredentials(reloading: true)
+        let credentials = try currentCredentials(reloading: true)
         switch reason {
         case .expiring:
             guard credentials.isExpiring(within: nearExpiryWindow) else {
@@ -347,14 +215,48 @@ actor AuthManager {
             }
         }
 
-        if let refreshExpiry = credentials.refreshTokenExpiresAt, refreshExpiry <= Date.now {
+        guard let refreshToken = credentials.refreshToken else {
             throw AuthError.refreshTokenExpired
         }
 
-        let refreshed = try await requestToken(refreshToken: credentials.refreshToken)
-        _ = try credentials.applyAndPersist(refreshed)
-        cached = credentials
-        return credentials.accessToken
+        let response = try await requestToken(form: [
+            URLQueryItem(name: "grant_type", value: "refresh_token"),
+            URLQueryItem(name: "refresh_token", value: refreshToken),
+            URLQueryItem(name: "client_id", value: clientID),
+        ])
+
+        var refreshed = credentials
+        refreshed.accessToken = response.accessToken
+        refreshed.refreshToken = response.refreshToken ?? refreshToken
+        refreshed.expiresAt = Date.now.addingTimeInterval(response.expiresIn)
+
+        try KeychainStore.save(refreshed, for: .claude)
+        cached = refreshed
+        return refreshed.accessToken
+    }
+
+    private func requestToken(form: [URLQueryItem]) async throws -> TokenResponse {
+        var request = URLRequest(url: tokenURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var components = URLComponents()
+        components.queryItems = form
+        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw AuthError.refreshFailed(status: status, detail: TokenErrorBody.describe(data))
+        }
+
+        do {
+            return try JSONDecoder().decode(TokenResponse.self, from: data)
+        } catch {
+            throw AuthError.malformedCredentials
+        }
     }
 
     private struct RefreshOperation: Sendable {
@@ -366,29 +268,6 @@ actor AuthManager {
     private enum RefreshReason: Equatable, Sendable {
         case expiring
         case rejectedAccessToken(String)
-    }
-
-    private func requestToken(refreshToken: String) async throws -> TokenResponse {
-        var request = URLRequest(url: tokenURL)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 20
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        var components = URLComponents()
-        components.queryItems = [
-            URLQueryItem(name: "grant_type", value: "refresh_token"),
-            URLQueryItem(name: "refresh_token", value: refreshToken),
-            URLQueryItem(name: "client_id", value: clientID),
-        ]
-        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            throw AuthError.refreshFailed(status: status)
-        }
-        return try JSONDecoder().decode(TokenResponse.self, from: data)
     }
 }
 

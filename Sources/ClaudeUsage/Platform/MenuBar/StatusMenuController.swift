@@ -38,23 +38,38 @@ final class StatusMenuController: NSObject {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
 
-        let items = [store.buckets.session, store.buckets.fable]
-            .compactMap { $0 }
-            .map { GaugeRenderer.Item(bucket: $0) }
+        let slots = [
+            slot(for: store.buckets.session, dimmed: store.isStale),
+            slot(for: store.buckets.fable, dimmed: store.isStale),
+            slot(for: store.codexBuckets.first, dimmed: store.codexIsStale),
+        ]
 
         var rendered: NSImage?
         button.effectiveAppearance.performAsCurrentDrawingAppearance {
-            rendered = GaugeRenderer.image(for: items, dimmed: store.isStale)
+            rendered = GaugeRenderer.image(for: slots)
         }
         button.image = rendered
         button.toolTip = tooltip
         button.setAccessibilityValue(tooltip)
     }
 
+    private func slot(for bucket: UsageBucket?, dimmed: Bool) -> GaugeRenderer.Slot {
+        guard let bucket else { return .empty }
+        return .usage(bucket, dimmed: dimmed)
+    }
+
     private var tooltip: String {
         var lines = store.buckets.map { "\($0.title): \(Int($0.remaining.rounded()))% left" }
         if let message = store.statusMessage { lines.append(message) }
-        return lines.isEmpty ? "Claude Usage" : lines.joined(separator: "\n")
+        if let codex = store.codexBuckets.first {
+            lines.append("Codex \(codex.title): \(Int(codex.remaining.rounded()))% left")
+        }
+        if let message = store.codexStatusMessage { lines.append(message) }
+
+        guard lines.isEmpty else { return lines.joined(separator: "\n") }
+        return store.claudeIsSignedIn || store.codexIsSignedIn
+            ? "Claude Usage"
+            : "Claude Usage — not signed in"
     }
 
     @objc private func showSettings() {
@@ -69,6 +84,7 @@ final class StatusMenuController: NSObject {
 
 extension StatusMenuController: @MainActor NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
+        Task { await store.refreshAuthState() }
         store.refreshIfStale()
 
         UsageMenuBuilder.populate(

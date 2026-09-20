@@ -92,6 +92,21 @@ struct OAuthTests {
         }
     }
 
+    @Test("Token failures report what the server actually said")
+    func tokenErrorBodyIsSurfaced() {
+        let anthropic = Data(#"{"error":{"type":"rate_limit_error","message":"Rate limited."}}"#.utf8)
+        #expect(TokenErrorBody.describe(anthropic) == "rate_limit_error: Rate limited.")
+
+        let oauth = Data(#"{"error":"invalid_grant","error_description":"state mismatch"}"#.utf8)
+        #expect(TokenErrorBody.describe(oauth) == "invalid_grant: state mismatch")
+
+        #expect(TokenErrorBody.describe(Data("Bad Gateway".utf8)) == "Bad Gateway")
+        #expect(TokenErrorBody.describe(Data()) == nil)
+
+        let error = AuthError.refreshFailed(status: 400, detail: "invalid_grant")
+        #expect(error.errorDescription?.contains("invalid_grant") == true)
+    }
+
     @Test("AuthCredentials encodes and decodes properly")
     func authCredentialsCodable() throws {
         let creds = AuthCredentials(
@@ -157,5 +172,75 @@ struct OAuthTests {
         let legacyDecoded = try CodexUsageClient.decode(legacyJSON)
         #expect(legacyDecoded.rateLimits?.primary?.usedPercent == 10)
         #expect(legacyDecoded.rateLimits?.secondary?.usedPercent == 40)
+    }
+
+    @Test("A sign-in that fails after the listener starts gives the callback port back")
+    func failedSignInReleasesPort() async throws {
+        let port: UInt16 = 45_455
+        let flow = OAuthBrowserFlow(
+            providerName: "Test Provider",
+            authorizeURL: URL(string: "https://example.invalid/authorize")!,
+            clientID: "test-client",
+            scopes: ["openid"],
+            redirect: .fixedPort(port, path: "/auth/callback"),
+            extraQueryItems: [],
+            openURL: { _ in throw OAuthServerError.browserLaunchFailed }
+        )
+
+        await #expect(throws: OAuthServerError.self) {
+            _ = try await flow.authorize()
+        }
+
+        let retry = OAuthCallbackServer()
+        #expect(try await retry.start(preferredPort: port) == port)
+        await retry.stopListening()
+    }
+
+    @Test("An abandoned sign-in gives the callback port back")
+    func abandonedSignInReleasesPort() async throws {
+        let port: UInt16 = 45_456
+        let flow = OAuthBrowserFlow(
+            providerName: "Test Provider",
+            authorizeURL: URL(string: "https://example.invalid/authorize")!,
+            clientID: "test-client",
+            scopes: ["openid"],
+            redirect: .fixedPort(port, path: "/auth/callback"),
+            extraQueryItems: [],
+            openURL: { _ in }
+        )
+
+        let signIn = Task { try await flow.authorize() }
+        try await waitUntilListening(on: port)
+        signIn.cancel()
+
+        do {
+            _ = try await signIn.value
+            Issue.record("Expected the abandoned sign-in to throw")
+        } catch let error as OAuthServerError {
+            guard case .cancelled = error else {
+                Issue.record("Expected .cancelled, got \(error)")
+                return
+            }
+        }
+
+        let retry = OAuthCallbackServer()
+        #expect(try await retry.start(preferredPort: port) == port)
+        await retry.stopListening()
+    }
+
+    private func waitUntilListening(
+        on port: UInt16,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        let probe = URL(string: "http://127.0.0.1:\(port)/favicon.ico")!
+        for _ in 0..<200 {
+            if let (_, response) = try? await URLSession.shared.data(from: probe),
+                response is HTTPURLResponse
+            {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("The callback server never started listening", sourceLocation: sourceLocation)
     }
 }

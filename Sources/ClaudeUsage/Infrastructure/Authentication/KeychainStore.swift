@@ -1,6 +1,29 @@
 import Foundation
 import Security
 
+nonisolated enum KeychainError: LocalizedError, Sendable {
+    case notFound
+    case unexpectedData
+    case osStatus(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound:
+            return "Not signed in — sign in from Settings."
+        case .unexpectedData:
+            return "The stored sign-in could not be read — sign in again."
+        case .osStatus(let status):
+            let message = SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+            return "Keychain error: \(message)"
+        }
+    }
+}
+
+public enum KeychainAccount: String, Sendable, CaseIterable {
+    case claude
+    case codex
+}
+
 public struct AuthCredentials: Codable, Sendable, Equatable {
     public var accessToken: String
     public var refreshToken: String?
@@ -34,84 +57,61 @@ public struct AuthCredentials: Codable, Sendable, Equatable {
         guard let expiresAt else { return false }
         return expiresAt <= Date()
     }
+
+    /// An expired access token is only recoverable while a refresh token survives alongside it.
+    public var isUsable: Bool {
+        !isExpired || refreshToken != nil
+    }
 }
 
 public enum KeychainStore: Sendable {
     public static let service = "ClaudeUsage-credentials"
 
-    public static func save(_ credentials: AuthCredentials, for account: String) throws {
+    public static func save(_ credentials: AuthCredentials, for account: KeychainAccount) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(credentials)
-        try writeData(data, service: service, account: account)
+        try write(try encoder.encode(credentials), account: account)
     }
 
-    public static func load(for account: String) throws -> AuthCredentials {
-        if let data = try? readData(service: service, account: account) {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            if let creds = try? decoder.decode(AuthCredentials.self, from: data) {
-                return creds
-            }
+    public static func load(for account: KeychainAccount) throws -> AuthCredentials {
+        let data = try read(account: account)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let credentials = try? decoder.decode(AuthCredentials.self, from: data) else {
+            throw KeychainError.unexpectedData
         }
-
-        if account == "claude" {
-            if let legacyCreds = tryLegacyClaudeCodeCredentials() {
-                return legacyCreds
-            }
-        } else if account == "codex" {
-            if let legacyCreds = tryLegacyCodexCredentials() {
-                return legacyCreds
-            }
-        }
-
-        throw KeychainError.notFound
+        return credentials
     }
 
-    public static func delete(for account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        let status = SecItemDelete(query as CFDictionary)
+    public static func delete(for account: KeychainAccount) throws {
+        let status = SecItemDelete(query(for: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError.osStatus(status)
         }
     }
 
-    public static func writeData(_ data: Data, service: String, account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+    private static func write(_ data: Data, account: KeychainAccount) throws {
+        let query = query(for: account)
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
 
-        let updateAttributes: [String: Any] = [
-            kSecValueData as String: data,
-        ]
-
-        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
-        if updateStatus == errSecItemNotFound {
-            var addAttributes = query
-            addAttributes[kSecValueData as String] = data
-            let addStatus = SecItemAdd(addAttributes as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw KeychainError.osStatus(addStatus)
-            }
-        } else if updateStatus != errSecSuccess {
-            throw KeychainError.osStatus(updateStatus)
+        guard updateStatus == errSecItemNotFound else {
+            guard updateStatus == errSecSuccess else { throw KeychainError.osStatus(updateStatus) }
+            return
         }
+
+        var attributes = query
+        attributes[kSecValueData as String] = data
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        guard addStatus == errSecSuccess else { throw KeychainError.osStatus(addStatus) }
     }
 
-    public static func readData(service: String, account: String) throws -> Data {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+    private static func read(account: KeychainAccount) throws -> Data {
+        var query = query(for: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -121,60 +121,11 @@ public enum KeychainStore: Sendable {
         return data
     }
 
-    private static func tryLegacyClaudeCodeCredentials() -> AuthCredentials? {
-        let query: [String: Any] = [
+    private static func query(for account: KeychainAccount) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Claude Code-credentials",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account.rawValue,
         ]
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-
-        guard
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let oauth = root["claudeAiOauth"] as? [String: Any],
-            let accessToken = oauth["accessToken"] as? String
-        else {
-            return nil
-        }
-
-        let refreshToken = oauth["refreshToken"] as? String
-        var expiresAt: Date?
-        if let millis = oauth["expiresAt"] as? Double {
-            expiresAt = Date(timeIntervalSince1970: millis / 1000)
-        }
-
-        return AuthCredentials(
-            accessToken: accessToken,
-            refreshToken: refreshToken,
-            expiresAt: expiresAt,
-            scopes: oauth["scopes"] as? [String]
-        )
-    }
-
-    private static func tryLegacyCodexCredentials() -> AuthCredentials? {
-        let authPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex/auth.json")
-        guard let data = try? Data(contentsOf: authPath) else { return nil }
-
-        guard
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let tokens = root["tokens"] as? [String: Any],
-            let accessToken = tokens["access_token"] as? String
-        else {
-            return nil
-        }
-
-        let refreshToken = tokens["refresh_token"] as? String
-        let accountId = tokens["account_id"] as? String
-
-        return AuthCredentials(
-            accessToken: accessToken,
-            refreshToken: refreshToken,
-            accountId: accountId
-        )
     }
 }

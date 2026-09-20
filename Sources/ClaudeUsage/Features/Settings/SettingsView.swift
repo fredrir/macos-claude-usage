@@ -8,6 +8,8 @@ struct SettingsView: View {
         Form {
             Section("General") {
                 Picker("Check every", selection: $store.pollInterval) {
+                    Text(" 5 minutes").tag(TimeInterval(5 * 60))
+                    Text("10 minutes").tag(TimeInterval(10 * 60))
                     Text("15 minutes").tag(TimeInterval(15 * 60))
                     Text("30 minutes").tag(TimeInterval(30 * 60))
                     Text("60 minutes").tag(TimeInterval(60 * 60))
@@ -30,97 +32,122 @@ struct SettingsView: View {
             }
 
             Section("Claude Account") {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(store.claudeIsSignedIn ? Color.green : Color.secondary)
-                                .frame(width: 8, height: 8)
-                            Text(store.claudeIsSignedIn ? "Connected" : "Not Connected")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        Text(store.claudeIsSignedIn
-                             ? "Using authenticated Anthropic OAuth session"
-                             : "Sign in with your browser to track Claude usage limits")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    if store.isSigningInClaude {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else if store.claudeIsSignedIn {
-                        Button("Sign Out") {
-                            store.signOutClaude()
-                        }
-                        .controlSize(.small)
-                    } else {
-                        Button("Sign In…") {
-                            store.signInClaude()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                }
+                AccountRow(
+                    isSignedIn: store.claudeIsSignedIn,
+                    isSigningIn: store.isSigningInClaude,
+                    isSigningOut: store.isSigningOutClaude,
+                    connectedTitle: "Connected",
+                    disconnectedDetail: "Sign in with your browser to track Claude usage limits",
+                    feedback: store.claudeAuthFeedback,
+                    signIn: { store.signInClaude() },
+                    signOut: { store.signOutClaude() },
+                    cancelSignIn: { store.cancelClaudeSignIn() }
+                )
             }
 
             Section("Codex / ChatGPT Account") {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(store.codexIsSignedIn ? Color.green : Color.secondary)
-                                .frame(width: 8, height: 8)
-                            Text(store.codexIsSignedIn
-                                 ? (store.codexEmail ?? "Connected")
-                                 : "Not Connected")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        Text(store.codexIsSignedIn
-                             ? "Using authenticated OpenAI OAuth session"
-                             : "Sign in with your browser to track Codex / ChatGPT limits")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    if store.isSigningInCodex {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else if store.codexIsSignedIn {
-                        Button("Sign Out") {
-                            store.signOutCodex()
-                        }
-                        .controlSize(.small)
-                    } else {
-                        Button("Sign In…") {
-                            store.signInCodex()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                }
-            }
-
-            if let error = store.authErrorMessage {
-                Section {
-                    Text(error)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                AccountRow(
+                    isSignedIn: store.codexIsSignedIn,
+                    isSigningIn: store.isSigningInCodex,
+                    isSigningOut: store.isSigningOutCodex,
+                    connectedTitle: store.codexEmail ?? "Connected",
+                    disconnectedDetail: "Sign in with your browser to track Codex / ChatGPT limits",
+                    feedback: store.codexAuthFeedback,
+                    signIn: { store.signInCodex() },
+                    signOut: { store.signOutCodex() },
+                    cancelSignIn: { store.cancelCodexSignIn() }
+                )
             }
         }
         .formStyle(.grouped)
         .frame(width: 440)
         .onAppear {
             launchAtLogin.refresh()
-            Task {
-                await store.refreshAuthState()
+            Task { await store.refreshAuthState() }
+        }
+    }
+}
+
+private struct AccountRow: View {
+    let isSignedIn: Bool
+    let isSigningIn: Bool
+    let isSigningOut: Bool
+    let connectedTitle: String
+    let disconnectedDetail: String
+    let feedback: UsageStore.AuthFeedback?
+    let signIn: () -> Void
+    let signOut: () -> Void
+    let cancelSignIn: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(indicatorColor)
+                            .frame(width: 8, height: 8)
+                        Text(title)
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    if !isSignedIn {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer()
+
+                controls
+            }
+
+            if let feedback {
+                Text(feedback.message)
+                    .font(.callout)
+                    .foregroundStyle(feedback.kind == .failure ? Color.red : Color.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        if isSigningIn {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Button("Cancel", action: cancelSignIn)
+                    .controlSize(.small)
+            }
+        } else if isSigningOut {
+            ProgressView()
+                .controlSize(.small)
+        } else if isSignedIn {
+            Button("Sign Out", action: signOut)
+                .controlSize(.small)
+        } else {
+            Button("Sign In…", action: signIn)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+    }
+
+    private var title: String {
+        if isSigningIn { return "Signing In…" }
+        if isSigningOut { return "Signing Out…" }
+        return isSignedIn ? connectedTitle : "Not Connected"
+    }
+
+    private var detail: String {
+        if isSigningIn { return "Finish signing in in your browser, then return here." }
+        if isSigningOut { return "Removing the saved sign-in…" }
+        if !isSignedIn { return disconnectedDetail } else { return "" }
+    }
+
+    private var indicatorColor: Color {
+        if isSigningIn || isSigningOut { return .orange }
+        return isSignedIn ? .green : .secondary
     }
 }

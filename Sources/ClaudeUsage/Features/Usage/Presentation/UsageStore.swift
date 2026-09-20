@@ -6,11 +6,24 @@ import UsageCore
 final class UsageStore: ObservableObject {
     enum Status: Equatable {
         case loading
+        case signedOut
         case ok
         case throttled(until: Date)
         case rateLimited(until: Date)
         case authExpired(String)
         case failed(String)
+    }
+
+    struct AuthFeedback: Equatable {
+        enum Kind: Equatable {
+            case info
+            case failure
+        }
+
+        let kind: Kind
+        let message: String
+
+        var failure: String? { kind == .failure ? message : nil }
     }
 
     private static let minimumSpacing: TimeInterval = 15 * 60
@@ -30,10 +43,15 @@ final class UsageStore: ObservableObject {
     @Published private(set) var codexEmail: String?
     @Published private(set) var isSigningInClaude: Bool = false
     @Published private(set) var isSigningInCodex: Bool = false
-    @Published var authErrorMessage: String?
+    @Published private(set) var isSigningOutClaude: Bool = false
+    @Published private(set) var isSigningOutCodex: Bool = false
+    @Published private(set) var claudeAuthFeedback: AuthFeedback?
+    @Published private(set) var codexAuthFeedback: AuthFeedback?
 
     private let repository: UsageRepository?
     private let codexRepository: CodexUsageRepository?
+    private let claudeAuth: any ProviderAuthenticating
+    private let codexAuth: any ProviderAuthenticating
     private let clock: any DateProvider
     private var refreshTask: Task<Void, Never>?
     private var timer: Timer?
@@ -48,10 +66,14 @@ final class UsageStore: ObservableObject {
     init(
         repository: UsageRepository = UsageRepository(),
         codexRepository: CodexUsageRepository = CodexUsageRepository(),
+        claudeAuth: any ProviderAuthenticating = ClaudeAuthentication(),
+        codexAuth: any ProviderAuthenticating = CodexAuthentication(),
         clock: any DateProvider = SystemDateProvider()
     ) {
         self.repository = repository
         self.codexRepository = codexRepository
+        self.claudeAuth = claudeAuth
+        self.codexAuth = codexAuth
         self.clock = clock
         let stored = UserDefaults.standard.double(forKey: "pollInterval")
         pollInterval = stored > 0 ? stored : 30 * 60
@@ -65,10 +87,14 @@ final class UsageStore: ObservableObject {
         status: Status = .ok,
         codexStatus: Status = .ok,
         pollInterval: TimeInterval = 30 * 60,
+        claudeAuth: any ProviderAuthenticating = FixedAuthentication(signedIn: true),
+        codexAuth: any ProviderAuthenticating = FixedAuthentication(signedIn: true),
         clock: any DateProvider
     ) {
         repository = nil
         codexRepository = nil
+        self.claudeAuth = claudeAuth
+        self.codexAuth = codexAuth
         self.clock = clock
         self.pollInterval = pollInterval
         self.buckets = buckets
@@ -97,9 +123,7 @@ final class UsageStore: ObservableObject {
 
     func refreshIfStale() {
         let threshold = max(Self.minimumSpacing, pollInterval / 2)
-        if needsRefresh(lastUpdated: lastUpdated, threshold: threshold)
-            || needsRefresh(lastUpdated: codexLastUpdated, threshold: threshold)
-        {
+        if claudeNeedsRefresh(threshold: threshold) || codexNeedsRefresh(threshold: threshold) {
             scheduleRefresh(manual: false)
         }
     }
@@ -109,80 +133,134 @@ final class UsageStore: ObservableObject {
     }
 
     func refreshAuthState() async {
-        let claude = await AuthManager.shared.isSignedIn
-        let codex = await CodexAuthManager.shared.isSignedIn
-        let email = await CodexAuthManager.shared.userEmail
-        self.claudeIsSignedIn = claude
-        self.codexIsSignedIn = codex
-        self.codexEmail = email
+        let claudeSignedIn = await claudeAuth.isSignedIn()
+        let codexSignedIn = await codexAuth.isSignedIn()
+        codexEmail = await codexAuth.accountLabel()
+        claudeIsSignedIn = claudeSignedIn
+        codexIsSignedIn = codexSignedIn
+
+        if !claudeSignedIn { clearClaude() }
+        if !codexSignedIn { clearCodex() }
     }
 
     func signInClaude() {
         guard !isSigningInClaude else { return }
         isSigningInClaude = true
-        authErrorMessage = nil
+        claudeAuthFeedback = nil
+
         Task {
+            defer { isSigningInClaude = false }
             do {
-                _ = try await AuthManager.shared.startSignIn()
+                try await claudeAuth.signIn()
+                await repository?.allowImmediateRefresh()
                 await refreshAuthState()
-                self.isSigningInClaude = false
+                Log.write("claude sign-in: succeeded")
                 refreshManually()
             } catch {
-                self.isSigningInClaude = false
-                self.authErrorMessage = "Claude sign-in failed: \(error.localizedDescription)"
+                claudeAuthFeedback = Self.signInFeedback(for: error)
+                Log.write("claude sign-in: failed \(error.localizedDescription)")
             }
         }
     }
 
     func signOutClaude() {
+        guard !isSigningOutClaude else { return }
+        isSigningOutClaude = true
+        claudeAuthFeedback = nil
+
         Task {
+            defer { isSigningOutClaude = false }
             do {
-                try await AuthManager.shared.signOut()
+                try await claudeAuth.signOut()
+                await repository?.clearCachedUsage()
                 await refreshAuthState()
-                self.buckets = []
-                self.status = .authExpired("Signed out of Claude")
+                claudeAuthFeedback = AuthFeedback(kind: .info, message: "Signed out.")
+                Log.write("claude sign-out: succeeded")
             } catch {
-                self.authErrorMessage = "Failed to sign out of Claude: \(error.localizedDescription)"
+                claudeAuthFeedback = Self.signOutFeedback(for: error)
+                Log.write("claude sign-out: failed \(error.localizedDescription)")
             }
         }
+    }
+
+    func cancelClaudeSignIn() {
+        guard isSigningInClaude else { return }
+        Task { await claudeAuth.cancelSignIn() }
     }
 
     func signInCodex() {
         guard !isSigningInCodex else { return }
         isSigningInCodex = true
-        authErrorMessage = nil
+        codexAuthFeedback = nil
+
         Task {
+            defer { isSigningInCodex = false }
             do {
-                _ = try await CodexAuthManager.shared.startSignIn()
+                try await codexAuth.signIn()
+                await codexRepository?.allowImmediateRefresh()
                 await refreshAuthState()
-                self.isSigningInCodex = false
+                Log.write("codex sign-in: succeeded")
                 refreshManually()
             } catch {
-                self.isSigningInCodex = false
-                self.authErrorMessage = "Codex sign-in failed: \(error.localizedDescription)"
+                codexAuthFeedback = Self.signInFeedback(for: error)
+                Log.write("codex sign-in: failed \(error.localizedDescription)")
             }
         }
     }
 
     func signOutCodex() {
+        guard !isSigningOutCodex else { return }
+        isSigningOutCodex = true
+        codexAuthFeedback = nil
+
         Task {
+            defer { isSigningOutCodex = false }
             do {
-                try await CodexAuthManager.shared.signOut()
+                try await codexAuth.signOut()
+                await codexRepository?.clearCachedUsage()
                 await refreshAuthState()
-                self.codexBuckets = []
-                self.codexStatus = .authExpired("Signed out of Codex")
+                codexAuthFeedback = AuthFeedback(kind: .info, message: "Signed out.")
+                Log.write("codex sign-out: succeeded")
             } catch {
-                self.authErrorMessage = "Failed to sign out of Codex: \(error.localizedDescription)"
+                codexAuthFeedback = Self.signOutFeedback(for: error)
+                Log.write("codex sign-out: failed \(error.localizedDescription)")
             }
         }
+    }
+
+    func cancelCodexSignIn() {
+        guard isSigningInCodex else { return }
+        Task { await codexAuth.cancelSignIn() }
+    }
+
+    private static func signInFeedback(for error: Error) -> AuthFeedback {
+        if error is CancellationError { return AuthFeedback(kind: .info, message: "Sign-in cancelled.") }
+        if case .cancelled? = error as? OAuthServerError {
+            return AuthFeedback(kind: .info, message: "Sign-in cancelled.")
+        }
+        return AuthFeedback(kind: .failure, message: "Sign-in failed: \(error.localizedDescription)")
+    }
+
+    private static func signOutFeedback(for error: Error) -> AuthFeedback {
+        AuthFeedback(kind: .failure, message: "Sign-out failed: \(error.localizedDescription)")
+    }
+
+    private func clearClaude() {
+        buckets = []
+        lastUpdated = nil
+        if status != .signedOut { status = .signedOut }
+    }
+
+    private func clearCodex() {
+        codexBuckets = []
+        codexLastUpdated = nil
+        if codexStatus != .signedOut { codexStatus = .signedOut }
     }
 
     private func tick() {
         objectWillChange.send()
 
-        if needsRefresh(lastUpdated: lastUpdated, threshold: pollInterval)
-            || needsRefresh(lastUpdated: codexLastUpdated, threshold: pollInterval)
-        {
+        if claudeNeedsRefresh(threshold: pollInterval) || codexNeedsRefresh(threshold: pollInterval) {
             scheduleRefresh(manual: false)
         }
     }
@@ -202,23 +280,25 @@ final class UsageStore: ObservableObject {
         async let codexSnapshot = codexRepository?.loadCachedSnapshot()
 
         let (cachedClaude, cachedCodex) = await (claudeSnapshot, codexSnapshot)
-        if let cachedClaude { apply(cachedClaude) }
-        if let cachedCodex { applyCodex(cachedCodex) }
+        if claudeIsSignedIn, let cachedClaude { apply(cachedClaude) }
+        if codexIsSignedIn, let cachedCodex { applyCodex(cachedCodex) }
     }
 
-    private func performRefresh(manual: Bool) async {
+    func performRefresh(manual: Bool) async {
         enum ProviderResult: Sendable {
             case claude(UsageRefreshOutcome)
             case codex(UsageRefreshOutcome)
         }
 
+        await refreshAuthState()
+
         let reason = manual ? "manual" : "scheduled"
         await withTaskGroup(of: ProviderResult.self) { group in
-            if let repository {
+            if let repository, claudeIsSignedIn {
                 Log.write("fetch: requesting (\(reason))")
                 group.addTask { .claude(await repository.refresh()) }
             }
-            if let codexRepository {
+            if let codexRepository, codexIsSignedIn {
                 Log.write("codex fetch: requesting (\(reason))")
                 group.addTask { .codex(await codexRepository.refresh()) }
             }
@@ -253,12 +333,12 @@ final class UsageStore: ObservableObject {
             case .authentication:
                 if case .authExpired = status {
                 } else {
-                    status = .authExpired("Sign-in unavailable retrying shortly.")
+                    status = .authExpired("Sign-in unavailable — retrying shortly.")
                 }
             case .errorBackoff:
                 if case .failed = status {
                 } else {
-                    status = .failed("Temporary error waiting before retrying.")
+                    status = .failed("Temporary error — waiting before retrying.")
                 }
             case .minimumSpacing:
                 status = .throttled(until: until)
@@ -294,12 +374,12 @@ final class UsageStore: ObservableObject {
             case .authentication:
                 if case .authExpired = codexStatus {
                 } else {
-                    codexStatus = .authExpired("Codex sign-in unavailable retrying later.")
+                    codexStatus = .authExpired("Codex sign-in unavailable — retrying later.")
                 }
             case .errorBackoff:
                 if case .failed = codexStatus {
                 } else {
-                    codexStatus = .failed("Codex temporarily unavailable waiting before retrying.")
+                    codexStatus = .failed("Codex temporarily unavailable — waiting before retrying.")
                 }
             case .minimumSpacing:
                 codexStatus = .throttled(until: until)
@@ -324,6 +404,14 @@ final class UsageStore: ObservableObject {
     private func applyCodex(_ snapshot: UsageSnapshot) {
         codexBuckets = snapshot.buckets
         codexLastUpdated = snapshot.fetchedAt
+    }
+
+    private func claudeNeedsRefresh(threshold: TimeInterval) -> Bool {
+        claudeIsSignedIn && needsRefresh(lastUpdated: lastUpdated, threshold: threshold)
+    }
+
+    private func codexNeedsRefresh(threshold: TimeInterval) -> Bool {
+        codexIsSignedIn && needsRefresh(lastUpdated: codexLastUpdated, threshold: threshold)
     }
 
     private func needsRefresh(lastUpdated: Date?, threshold: TimeInterval) -> Bool {
@@ -364,11 +452,11 @@ extension UsageStore {
         switch status {
         case .loading:
             return lastUpdated == nil ? "Fetching…" : nil
-        case .ok, .throttled:
+        case .ok, .throttled, .signedOut:
             return nil
         case .rateLimited(let until):
             guard let minutes = minutesUntil(until) else { return "Retrying…" }
-            return "Rate limited retrying in \(minutes)m"
+            return "Rate limited — retrying in \(minutes)m"
         case .authExpired(let message), .failed(let message):
             return message
         }
@@ -381,6 +469,7 @@ extension UsageStore {
     private func statusIcon(for status: Status, isStale: Bool) -> String {
         switch status {
         case .ok, .loading, .throttled: isStale ? "clock" : "checkmark.circle"
+        case .signedOut: "person.crop.circle.badge.xmark"
         case .rateLimited: "hourglass"
         case .authExpired: "key"
         case .failed: "exclamationmark.triangle"
@@ -393,6 +482,7 @@ extension UsageStore {
 
     private func statusIsWarning(for status: Status, isStale: Bool) -> Bool {
         switch status {
+        case .signedOut: false
         case .ok, .loading, .throttled: isStale
         case .rateLimited, .authExpired, .failed: true
         }

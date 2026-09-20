@@ -56,6 +56,21 @@ actor CodexUsageRepository {
         return mapper.map(response, fetchedAt: payload.fetchedAt)
     }
 
+    /// Drops everything the signed-out account left behind so no stale usage survives a sign-out.
+    func clearCachedUsage() {
+        pollingState = PollingState()
+        hasLoadedPollingState = true
+        try? FileManager.default.removeItem(at: cacheURL)
+        try? FileManager.default.removeItem(at: pollingStateURL)
+    }
+
+    /// Clears the backoff a signed-out account accumulated so a fresh sign-in fetches straight away.
+    func allowImmediateRefresh() {
+        pollingState = PollingState()
+        hasLoadedPollingState = true
+        persistPollingStateBestEffort(context: "Codex sign-in")
+    }
+
     func refresh() async -> UsageRefreshOutcome {
         loadPollingStateIfNeeded()
 

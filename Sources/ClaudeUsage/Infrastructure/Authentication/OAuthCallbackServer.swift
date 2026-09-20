@@ -11,6 +11,8 @@ public enum OAuthServerError: LocalizedError, Sendable {
     case missingCode
     case timedOut
     case cancelled
+    case malformedAuthorizeURL
+    case browserLaunchFailed
 
     public var errorDescription: String? {
         switch self {
@@ -32,6 +34,10 @@ public enum OAuthServerError: LocalizedError, Sendable {
             return "Sign-in timed out. Please try again."
         case .cancelled:
             return "Sign-in was cancelled."
+        case .malformedAuthorizeURL:
+            return "The sign-in URL could not be built — check the configured OAuth settings."
+        case .browserLaunchFailed:
+            return "The sign-in page could not be opened in your browser."
         }
     }
 }

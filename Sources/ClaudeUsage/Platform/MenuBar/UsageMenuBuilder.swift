@@ -28,7 +28,8 @@ enum UsageMenuBuilder {
             now: store.now,
             refresh: actions.refreshClaude,
             signIn: actions.signInClaude,
-            isSigningIn: store.isSigningInClaude
+            isSigningIn: store.isSigningInClaude,
+            authFailure: store.claudeAuthFeedback?.failure
         )
 
         menu.addItem(.separator())
@@ -44,7 +45,8 @@ enum UsageMenuBuilder {
             now: store.now,
             refresh: actions.refreshCodex,
             signIn: actions.signInCodex,
-            isSigningIn: store.isSigningInCodex
+            isSigningIn: store.isSigningInCodex,
+            authFailure: store.codexAuthFeedback?.failure
         )
 
         menu.addItem(.separator())
@@ -68,7 +70,8 @@ enum UsageMenuBuilder {
         now: Date,
         refresh: @escaping () -> Void,
         signIn: (() -> Void)?,
-        isSigningIn: Bool
+        isSigningIn: Bool,
+        authFailure: String? = nil
     ) {
         menu.addItem(row(ProviderHeaderRow(title: title, refresh: refresh)))
 
@@ -79,6 +82,12 @@ enum UsageMenuBuilder {
                 menu.addItem(row(PlaceholderMenuRow(message: "Not signed in")))
             } else {
                 menu.addItem(row(PlaceholderMenuRow(message: "No usage limits returned")))
+            }
+
+            if let authFailure {
+                menu.addItem(
+                    row(StatusMenuRow(message: authFailure, systemImage: "exclamationmark.triangle"))
+                )
             }
 
             if let signIn {

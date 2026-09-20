@@ -82,6 +82,112 @@ struct StatusMenuTests {
         #expect(menu.items.last?.title == "Quit")
     }
 
+    @Test("With nothing signed in the gauge keeps its shape, greyed out")
+    func emptyGaugeIsGreyedOut() throws {
+        let bitmap = try rasterize(GaugeRenderer.image(for: [.empty, .empty, .empty]), scale: 2)
+        let slotWidth = bitmap.pixelsWide / 3
+
+        for slot in 0..<3 {
+            let left = slot * slotWidth
+            let rows = paintedRows(in: bitmap, columns: left..<(left + slotWidth))
+            #expect(rows.count == 7, "slot \(slot) drew \(rows.count) rows")
+        }
+
+        let live = try rasterize(
+            GaugeRenderer.image(for: [.usage(fullBucket, dimmed: false)]),
+            scale: 2
+        )
+        #expect(strongestAlpha(in: bitmap) < strongestAlpha(in: live))
+    }
+
+    @Test("A gauge with usage left paints only the rows it still has")
+    func partlyUsedGaugeHidesSpentRows() throws {
+        let halfUsed = UsageBucket(
+            id: "claude-session",
+            title: "Current session",
+            utilization: 50,
+            resetsAt: nil,
+            severity: nil,
+            role: .session
+        )
+
+        let bitmap = try rasterize(
+            GaugeRenderer.image(for: [.usage(halfUsed, dimmed: false)]),
+            scale: 2
+        )
+
+        #expect(paintedRows(in: bitmap, columns: 0..<bitmap.pixelsWide).count == 4)
+    }
+
+    private var fullBucket: UsageBucket {
+        UsageBucket(
+            id: "claude-session",
+            title: "Current session",
+            utilization: 0,
+            resetsAt: nil,
+            severity: nil,
+            role: .session
+        )
+    }
+
+    private func strongestAlpha(in bitmap: NSBitmapImageRep) -> CGFloat {
+        (0..<bitmap.pixelsWide).reduce(0) { widest, x in
+            max(widest, (0..<bitmap.pixelsHigh).reduce(0) { max($0, alpha(bitmap, x: x, y: $1)) })
+        }
+    }
+
+    private func rasterize(_ image: NSImage, scale: Int) throws -> NSBitmapImageRep {
+        let bitmap = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(image.size.width) * scale,
+                pixelsHigh: Int(image.size.height) * scale,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        bitmap.size = image.size
+
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+
+        return bitmap
+    }
+
+    private func alpha(_ bitmap: NSBitmapImageRep, x: Int, y: Int) -> CGFloat {
+        bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
+    }
+
+    private func paintedRows(
+        in bitmap: NSBitmapImageRep,
+        columns: Range<Int>
+    ) -> [ClosedRange<Int>] {
+        var rows: [ClosedRange<Int>] = []
+        var start: Int?
+
+        for y in 0..<bitmap.pixelsHigh {
+            let painted = columns.contains { alpha(bitmap, x: $0, y: y) > 0.05 }
+            switch (painted, start) {
+            case (true, nil): start = y
+            case (false, .some(let first)):
+                rows.append(first...(y - 1))
+                start = nil
+            default: break
+            }
+        }
+        if let start { rows.append(start...(bitmap.pixelsHigh - 1)) }
+
+        return rows
+    }
+
     private func populatedMenu() -> NSMenu {
         let now = Date(timeIntervalSinceReferenceDate: 1_000)
         let buckets = [

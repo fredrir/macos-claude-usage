@@ -45,16 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             exit(RefreshProbe.run() ? 0 : 1)
         }
 
-        if let index = CommandLine.arguments.firstIndex(of: "--screenshot") {
-            let path = CommandLine.arguments.dropFirst(index + 1).first ?? "docs/screenshots"
-            do {
-                try Screenshots.write(into: URL(fileURLWithPath: path))
-                exit(0)
-            } catch {
-                print("error: \(error.localizedDescription)")
-                exit(1)
-            }
-        }
+        NSApplication.shared.mainMenu = AppMainMenu.make()
 
         let scenes = NSHostingSceneRepresentation {
             Settings {
