@@ -25,6 +25,12 @@ final class UsageStore: ObservableObject {
     @Published var pollInterval: TimeInterval {
         didSet { UserDefaults.standard.set(pollInterval, forKey: "pollInterval") }
     }
+    @Published private(set) var claudeIsSignedIn: Bool = false
+    @Published private(set) var codexIsSignedIn: Bool = false
+    @Published private(set) var codexEmail: String?
+    @Published private(set) var isSigningInClaude: Bool = false
+    @Published private(set) var isSigningInCodex: Bool = false
+    @Published var authErrorMessage: String?
 
     private let repository: UsageRepository?
     private let codexRepository: CodexUsageRepository?
@@ -105,6 +111,75 @@ final class UsageStore: ObservableObject {
         scheduleRefresh(manual: true)
     }
 
+    func refreshAuthState() async {
+        let claude = await AuthManager.shared.isSignedIn
+        let codex = await CodexAuthManager.shared.isSignedIn
+        let email = await CodexAuthManager.shared.userEmail
+        self.claudeIsSignedIn = claude
+        self.codexIsSignedIn = codex
+        self.codexEmail = email
+    }
+
+    func signInClaude() {
+        guard !isSigningInClaude else { return }
+        isSigningInClaude = true
+        authErrorMessage = nil
+        Task {
+            do {
+                _ = try await AuthManager.shared.startSignIn()
+                await refreshAuthState()
+                self.isSigningInClaude = false
+                refreshManually()
+            } catch {
+                self.isSigningInClaude = false
+                self.authErrorMessage = "Claude sign-in failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func signOutClaude() {
+        Task {
+            do {
+                try await AuthManager.shared.signOut()
+                await refreshAuthState()
+                self.buckets = []
+                self.status = .authExpired("Signed out of Claude")
+            } catch {
+                self.authErrorMessage = "Failed to sign out of Claude: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func signInCodex() {
+        guard !isSigningInCodex else { return }
+        isSigningInCodex = true
+        authErrorMessage = nil
+        Task {
+            do {
+                _ = try await CodexAuthManager.shared.startSignIn()
+                await refreshAuthState()
+                self.isSigningInCodex = false
+                refreshManually()
+            } catch {
+                self.isSigningInCodex = false
+                self.authErrorMessage = "Codex sign-in failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func signOutCodex() {
+        Task {
+            do {
+                try await CodexAuthManager.shared.signOut()
+                await refreshAuthState()
+                self.codexBuckets = []
+                self.codexStatus = .authExpired("Signed out of Codex")
+            } catch {
+                self.authErrorMessage = "Failed to sign out of Codex: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func tick() {
         // Reset and retry countdowns are derived values, so notify even without new usage data.
         objectWillChange.send()
@@ -126,6 +201,7 @@ final class UsageStore: ObservableObject {
     }
 
     private func loadCachedSnapshots() async {
+        await refreshAuthState()
         async let claudeSnapshot = repository?.loadCachedSnapshot()
         async let codexSnapshot = codexRepository?.loadCachedSnapshot()
 

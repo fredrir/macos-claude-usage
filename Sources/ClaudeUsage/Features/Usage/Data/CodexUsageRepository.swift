@@ -19,7 +19,7 @@ actor CodexUsageRepository {
     private var hasLoadedPollingState = false
 
     init(
-        client: any CodexUsageFetching = CodexAppServerClient(),
+        client: any CodexUsageFetching = CodexUsageClient(),
         cacheURL: URL = AppPaths.codexCachedPayload,
         pollingStateURL: URL = AppPaths.codexPollingState,
         policy: PollingPolicy = PollingPolicy(authenticationDelay: 15 * 60),
@@ -40,7 +40,7 @@ actor CodexUsageRepository {
         guard
             let data = try? Data(contentsOf: cacheURL),
             let payload = try? JSONDecoder().decode(CachedPayload.self, from: data),
-            let response = try? CodexAppServerClient.decode(payload.raw)
+            let response = try? CodexUsageClient.decode(payload.raw)
         else {
             return nil
         }

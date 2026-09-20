@@ -1,0 +1,161 @@
+import Foundation
+import Testing
+
+@testable import ClaudeUsage
+
+@Suite("OAuth PKCE and Loopback Server")
+struct OAuthTests {
+    @Test("PKCE matches RFC 7636 test vector")
+    func pkceRfcTestVector() {
+        // RFC 7636 Appendix B test vector
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+        let expectedChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+        let challenge = PKCE.generateCodeChallenge(from: verifier)
+        #expect(challenge == expectedChallenge)
+    }
+
+    @Test("PKCE verifier and state generation are base64url unpadded")
+    func pkceGeneration() {
+        let verifier = PKCE.generateCodeVerifier()
+        let state = PKCE.generateState()
+
+        #expect(!verifier.contains("+"))
+        #expect(!verifier.contains("/"))
+        #expect(!verifier.contains("="))
+        #expect(verifier.count >= 43)
+
+        #expect(!state.contains("+"))
+        #expect(!state.contains("/"))
+        #expect(!state.contains("="))
+        #expect(state.count >= 20)
+    }
+
+    @Test("OAuthCallbackServer receives authorization code over HTTP loopback")
+    func loopbackCallbackSuccess() async throws {
+        let server = OAuthCallbackServer()
+        let port = try await server.start(preferredPort: 0)
+        #expect(port > 0)
+
+        let state = "test-state-123"
+        let code = "auth-code-xyz"
+
+        async let receivedCode = server.waitForAuthorizationCode(
+            expectedPath: "/callback",
+            expectedState: state,
+            providerName: "Test Provider",
+            timeout: 5
+        )
+
+        // Make HTTP client request
+        let url = URL(string: "http://127.0.0.1:\(port)/callback?code=\(code)&state=\(state)")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        let httpResponse = try #require(response as? HTTPURLResponse)
+        #expect(httpResponse.statusCode == 200)
+
+        let responseBody = String(decoding: data, as: UTF8.self)
+        #expect(responseBody.contains("Signed In to Test Provider"))
+
+        let result = try await receivedCode
+        #expect(result == code)
+    }
+
+    @Test("OAuthCallbackServer rejects state mismatch")
+    func loopbackStateMismatch() async throws {
+        let server = OAuthCallbackServer()
+        let port = try await server.start(preferredPort: 0)
+        #expect(port > 0)
+
+        let expectedState = "expected-state"
+        let wrongState = "wrong-state"
+
+        async let receivedCode = server.waitForAuthorizationCode(
+            expectedPath: "/callback",
+            expectedState: expectedState,
+            providerName: "Test Provider",
+            timeout: 5
+        )
+
+        let url = URL(string: "http://127.0.0.1:\(port)/callback?code=somecode&state=\(wrongState)")!
+        let (_, response) = try await URLSession.shared.data(from: url)
+        let httpResponse = try #require(response as? HTTPURLResponse)
+        #expect(httpResponse.statusCode == 200) // Error HTML returned
+
+        do {
+            _ = try await receivedCode
+            Issue.record("Expected OAuthServerError.stateMismatch to be thrown")
+        } catch let error as OAuthServerError {
+            guard case .stateMismatch = error else {
+                Issue.record("Expected .stateMismatch, got \(error)")
+                return
+            }
+        }
+    }
+
+    @Test("AuthCredentials encodes and decodes properly")
+    func authCredentialsCodable() throws {
+        let creds = AuthCredentials(
+            accessToken: "test-access-token",
+            refreshToken: "test-refresh-token",
+            expiresAt: Date(timeIntervalSince1970: 1700000000),
+            scopes: ["openid", "profile"],
+            accountId: "acc-123",
+            email: "user@example.com"
+        )
+
+        let data = try JSONEncoder().encode(creds)
+        let decoded = try JSONDecoder().decode(AuthCredentials.self, from: data)
+
+        #expect(decoded.accessToken == creds.accessToken)
+        #expect(decoded.refreshToken == creds.refreshToken)
+        #expect(decoded.accountId == creds.accountId)
+        #expect(decoded.email == creds.email)
+        #expect(decoded.scopes == creds.scopes)
+        #expect(decoded.isExpiring(within: 60) == true)
+    }
+
+    @Test("CodexUsageClient decodes both Wham and legacy app-server payloads")
+    func codexUsageClientDecode() throws {
+        let whamJSON = """
+        {
+            "user_id": "usr_123",
+            "account_id": "acc_456",
+            "email": "user@example.com",
+            "rate_limit": {
+                "allowed": true,
+                "limit_reached": false,
+                "primary_window": {
+                    "used_percent": 22.5,
+                    "limit_window_seconds": 18000,
+                    "reset_after_seconds": 3600
+                },
+                "secondary_window": {
+                    "used_percent": 55.0,
+                    "limit_window_seconds": 604800,
+                    "reset_after_seconds": 86400
+                }
+            }
+        }
+        """.data(using: .utf8)!
+
+        let whamDecoded = try CodexUsageClient.decode(whamJSON)
+        #expect(whamDecoded.rateLimits?.primary?.usedPercent == 22.5)
+        #expect(whamDecoded.rateLimits?.primary?.windowDurationMins == 300)
+        #expect(whamDecoded.rateLimits?.secondary?.usedPercent == 55.0)
+        #expect(whamDecoded.rateLimits?.secondary?.windowDurationMins == 10080)
+
+        let legacyJSON = """
+        {
+            "rateLimits": {
+                "limitId": "codex",
+                "primary": { "usedPercent": 10, "windowDurationMins": 300 },
+                "secondary": { "usedPercent": 40, "windowDurationMins": 10080 }
+            }
+        }
+        """.data(using: .utf8)!
+
+        let legacyDecoded = try CodexUsageClient.decode(legacyJSON)
+        #expect(legacyDecoded.rateLimits?.primary?.usedPercent == 10)
+        #expect(legacyDecoded.rateLimits?.secondary?.usedPercent == 40)
+    }
+}

@@ -1,22 +1,19 @@
 name: ClaudeUsage
-
 options:
   createIntermediateGroups: true
   deploymentTarget:
     macOS: "14.0"
   minimumXcodeGenVersion: "2.45.4"
   xcodeVersion: "16.0"
-
 configs:
   Debug: debug
   Release: release
-
 settings:
   base:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     SWIFT_VERSION: "6.0"
     ENABLE_HARDENED_RUNTIME: true
-
+    DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
 targets:
   UsageCore:
     type: framework
@@ -28,7 +25,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.UsageCore
         PRODUCT_NAME: UsageCore
         GENERATE_INFOPLIST_FILE: true
-
   ClaudeUsage:
     type: application
     platform: macOS
@@ -50,7 +46,6 @@ targets:
       testTargets:
         - ClaudeUsageTests
         - UsageCoreTests
-
   ClaudeUsageTests:
     type: bundle.unit-test
     platform: macOS
@@ -63,7 +58,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.ClaudeUsageTests
         GENERATE_INFOPLIST_FILE: true
-
   UsageCoreTests:
     type: bundle.unit-test
     platform: macOS

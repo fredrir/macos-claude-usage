@@ -69,9 +69,12 @@ jobs:
           plutil -lint Configuration/ClaudeUsage.release.entitlements
 
       - name: Validate shell scripts
-        run: bash -n build.sh screenshots.sh Scripts/release.sh
+        run: |
+          for script in Scripts/*.sh Scripts/lib/*.sh; do
+            bash -n "${script}"
+          done
 
       # This command uses the app's pinned fixture and clock. It does not read
       # Keychain credentials or call the live usage API.
       - name: Check deterministic screenshots
-        run: ./screenshots.sh --check
+        run: ./Scripts/screenshots.sh --check

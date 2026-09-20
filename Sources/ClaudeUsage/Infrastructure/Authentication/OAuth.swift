@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 nonisolated enum AuthError: LocalizedError, Sendable {
@@ -58,7 +59,29 @@ nonisolated struct Credentials: Sendable {
         }
     }
 
+    init(authCredentials: AuthCredentials) throws {
+        guard let refreshToken = authCredentials.refreshToken else {
+            throw AuthError.malformedCredentials
+        }
+        self.accessToken = authCredentials.accessToken
+        self.refreshToken = refreshToken
+        self.expiresAt = authCredentials.expiresAt ?? Date().addingTimeInterval(3600)
+        self.refreshTokenExpiresAt = nil
+        self.persistentReference = nil
+        let root: [String: Any] = [
+            Self.containerKey: [
+                "accessToken": authCredentials.accessToken,
+                "refreshToken": refreshToken,
+                "expiresAt": (authCredentials.expiresAt ?? Date().addingTimeInterval(3600)).timeIntervalSince1970 * 1000,
+            ]
+        ]
+        self.encodedRoot = (try? JSONSerialization.data(withJSONObject: root)) ?? Data()
+    }
+
     static func load() throws -> Credentials {
+        if let appAuth = try? KeychainStore.load(for: "claude") {
+            return try Credentials(authCredentials: appAuth)
+        }
         let item = try Keychain.read()
         return try Credentials(data: item.data, persistentReference: item.persistentReference)
     }
@@ -76,7 +99,22 @@ nonisolated struct Credentials: Sendable {
     @discardableResult
     mutating func applyAndPersist(_ refreshed: TokenResponse) throws -> Bool {
         guard let persistentReference else {
-            throw KeychainError.missingPersistentReference
+            // App-owned Keychain storage
+            let newExpiry = Date.now.addingTimeInterval(refreshed.expiresIn)
+            var latest = self
+            latest.accessToken = refreshed.accessToken
+            if let newRefresh = refreshed.refreshToken {
+                latest.refreshToken = newRefresh
+            }
+            latest.expiresAt = newExpiry
+            let updatedAuth = AuthCredentials(
+                accessToken: latest.accessToken,
+                refreshToken: latest.refreshToken,
+                expiresAt: newExpiry
+            )
+            try KeychainStore.save(updatedAuth, for: "claude")
+            self = latest
+            return true
         }
 
         let item: Keychain.Item
@@ -165,11 +203,111 @@ nonisolated struct TokenResponse: Decodable, Sendable {
 actor AuthManager {
     static let shared = AuthManager()
 
-    private let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
-    private let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    private let tokenURL: URL
+    private let clientID: String
+    private let authorizeURL: URL
     private let nearExpiryWindow: TimeInterval = 120
     private var inFlight: RefreshOperation?
     private var cached: Credentials?
+
+    init(environment: AppEnvironment = .shared) {
+        self.tokenURL = environment.claudeTokenURL
+        self.clientID = environment.claudeClientID
+        self.authorizeURL = environment.claudeAuthorizeURL
+    }
+
+    var isSignedIn: Bool {
+        (try? currentCredentials(reloading: false)) != nil
+    }
+
+    func signOut() throws {
+        try KeychainStore.delete(for: "claude")
+        cached = nil
+    }
+
+    @discardableResult
+    func startSignIn() async throws -> AuthCredentials {
+        let server = OAuthCallbackServer()
+        let port = try await server.start(preferredPort: 0)
+        let redirectURI = "http://localhost:\(port)/callback"
+
+        let verifier = PKCE.generateCodeVerifier()
+        let challenge = PKCE.generateCodeChallenge(from: verifier)
+        let state = PKCE.generateState()
+
+        var components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "scope", value: "user:file_upload user:inference user:mcp_servers user:plugins user:profile user:sessions:claude_code"),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            URLQueryItem(name: "state", value: state),
+        ]
+
+        guard let authURL = components.url else {
+            throw OAuthServerError.cancelled
+        }
+
+        _ = await MainActor.run {
+            NSWorkspace.shared.open(authURL)
+        }
+
+        let code = try await server.waitForAuthorizationCode(
+            expectedPath: "/callback",
+            expectedState: state,
+            providerName: "Claude"
+        )
+
+        let creds = try await exchangeCode(
+            code: code,
+            verifier: verifier,
+            redirectURI: redirectURI,
+            state: state
+        )
+        try KeychainStore.save(creds, for: "claude")
+        cached = try? currentCredentials(reloading: true)
+        return creds
+    }
+
+    private func exchangeCode(
+        code: String,
+        verifier: String,
+        redirectURI: String,
+        state: String
+    ) async throws -> AuthCredentials {
+        var request = URLRequest(url: tokenURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "code_verifier", value: verifier),
+            URLQueryItem(name: "state", value: state),
+        ]
+        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw AuthError.refreshFailed(status: status)
+        }
+
+        let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
+        let expiresAt = Date().addingTimeInterval(tokenResponse.expiresIn)
+        return AuthCredentials(
+            accessToken: tokenResponse.accessToken,
+            refreshToken: tokenResponse.refreshToken,
+            expiresAt: expiresAt
+        )
+    }
 
     func accessToken() async throws -> String {
         let credentials = try currentCredentials(reloading: false)

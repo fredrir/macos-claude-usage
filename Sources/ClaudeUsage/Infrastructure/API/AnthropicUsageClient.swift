@@ -35,7 +35,9 @@ protocol UsageFetching: Sendable {
 /// Token providers are injected so request behavior can be tested without touching the user's
 /// Keychain. The production defaults delegate to the serialized `AuthManager` actor.
 struct AnthropicUsageClient: UsageFetching {
-    static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    static var endpoint: URL {
+        AppEnvironment.shared.claudeUsageEndpoint
+    }
 
     private let endpoint: URL
     private let session: URLSession

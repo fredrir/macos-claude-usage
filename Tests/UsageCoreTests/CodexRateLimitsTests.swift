@@ -122,6 +122,45 @@ struct CodexRateLimitsTests {
         #expect(mapper.buckets(from: response).map(\.title) == ["Weekly limit"])
     }
 
+    @Test("Decodes wham/usage backend response and maps to buckets")
+    func decodesWhamUsageResponse() throws {
+        let json = """
+        {
+          "user_id": "user-123",
+          "plan_type": "prolite",
+          "rate_limit": {
+            "allowed": false,
+            "limit_reached": true,
+            "primary_window": {
+              "used_percent": 100,
+              "limit_window_seconds": 604800,
+              "reset_after_seconds": 540130,
+              "reset_at": 1790445750
+            },
+            "secondary_window": null
+          },
+          "additional_rate_limits": {
+            "codex_mini": {
+              "limit_name": "Codex Mini",
+              "primary_window": {
+                "used_percent": 45,
+                "limit_window_seconds": 18000,
+                "reset_at": 1790450000
+              }
+            }
+          }
+        }
+        """
+
+        let wham = try JSONDecoder().decode(CodexWhamUsageDTO.self, from: Data(json.utf8))
+        let response = wham.toRateLimitsResponse()
+        let buckets = mapper.buckets(from: response)
+
+        #expect(buckets.map(\.title) == ["Weekly limit", "5-hour limit (Codex Mini)"])
+        #expect(buckets.map(\.utilization) == [100, 45])
+        #expect(buckets[0].resetsAt == Date(timeIntervalSince1970: 1_790_445_750))
+    }
+
     @Test("Rejects an unknown response shape")
     func rejectsUnknownRoot() {
         #expect(throws: DecodingError.self) {

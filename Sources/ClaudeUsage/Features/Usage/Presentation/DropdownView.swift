@@ -42,7 +42,9 @@ struct DropdownView: View {
                 statusIcon: store.statusIcon,
                 statusIsWarning: store.statusIsWarning,
                 now: store.now,
-                refresh: store.refreshManually
+                refresh: { store.refreshManually() },
+                signIn: store.claudeIsSignedIn ? nil : { store.signInClaude() },
+                isSigningIn: store.isSigningInClaude
             )
 
             Divider()
@@ -55,7 +57,9 @@ struct DropdownView: View {
                 statusIcon: store.codexStatusIcon,
                 statusIsWarning: store.codexStatusIsWarning,
                 now: store.now,
-                refresh: nil
+                refresh: { store.refreshManually() },
+                signIn: store.codexIsSignedIn ? nil : { store.signInCodex() },
+                isSigningIn: store.isSigningInCodex
             )
         }
         .padding(16)
@@ -166,6 +170,8 @@ private struct ProviderUsageSection: View {
     let statusIsWarning: Bool
     let now: Date
     let refresh: (() -> Void)?
+    var signIn: (() -> Void)? = nil
+    var isSigningIn: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -192,10 +198,25 @@ private struct ProviderUsageSection: View {
             if buckets.isEmpty {
                 if statusIsWarning, let statusMessage {
                     statusRow(statusMessage)
+                } else if signIn != nil {
+                    Text("Not signed in")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 } else {
                     Text("No usage limits returned")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                }
+
+                if let signIn {
+                    if isSigningIn {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button("Sign In…", action: signIn)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
