@@ -25,15 +25,3 @@ open ~/Applications/ClaudeUsage.app
 ```
 
 > Pre-compiled binaries coming soon!
-
-## Developer tools
-
-```sh
-./Scripts/screenshots.sh        # rewrite docs/screenshots/ from the real menu
-ClaudeUsage --dump              # print the resolved Claude windows
-ClaudeUsage --dump-codex        # print the resolved Codex windows
-ClaudeUsage --verify-refresh    # check the in-menu refresh control still receives clicks
-```
-
-The screenshots are captured from the status menu itself, so the committed images carry whatever
-menu material the macOS build that produced them draws. Regenerate them on a matching OS.

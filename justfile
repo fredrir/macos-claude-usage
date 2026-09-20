@@ -14,8 +14,12 @@ release *args:
 sign target=".build/debug/ClaudeUsage":
     ./Scripts/dev-sign.sh "{{target}}"
 
-# Regenerate docs/screenshots [ --check ]
-screenshot *args:
-    ./Scripts/screenshots.sh {{args}}
+# print the resolved Claude windows
+dump:
+    ClaudeUsage --dump
 
+dump-codex:
+    ClaudeUsage --dump-codex 
 
+verify-refresh:
+    ClaudeUsage --verify-refresh
