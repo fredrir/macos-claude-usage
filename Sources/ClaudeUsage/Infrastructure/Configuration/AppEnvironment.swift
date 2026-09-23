@@ -72,6 +72,13 @@ public struct AppEnvironment: Sendable {
         url(for: "CLAUDE_USAGE_ENDPOINT", default: URL(string: "https://api.anthropic.com/api/oauth/usage")!)
     }
 
+    public var claudeProfileEndpoint: URL {
+        url(
+            for: "CLAUDE_PROFILE_ENDPOINT",
+            default: URL(string: "https://api.anthropic.com/api/oauth/profile")!
+        )
+    }
+
     public var appleTeamID: String? {
         value(for: "APPLE_TEAM_ID")
     }

@@ -59,6 +59,21 @@ nonisolated struct TokenResponse: Decodable, Sendable {
     }
 }
 
+nonisolated struct ClaudeProfile: Sendable {
+    let email: String?
+
+    init(data: Data) {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let account = json["account"] as? [String: Any]
+        else {
+            email = nil
+            return
+        }
+        email = account["email"] as? String
+    }
+}
+
 actor AuthManager {
     static let shared = AuthManager()
 
@@ -74,19 +89,34 @@ actor AuthManager {
     private let tokenURL: URL
     private let clientID: String
     private let authorizeURL: URL
+    private let profileURL: URL
     private let nearExpiryWindow: TimeInterval = 120
     private var inFlightRefresh: RefreshOperation?
     private var inFlightSignIn: Task<AuthCredentials, Error>?
     private var cached: AuthCredentials?
+    private var backfillAttempted = false
 
     init(environment: AppEnvironment = .shared) {
         self.tokenURL = environment.claudeTokenURL
         self.clientID = environment.claudeClientID
         self.authorizeURL = environment.claudeAuthorizeURL
+        self.profileURL = environment.claudeProfileEndpoint
     }
 
     var isSignedIn: Bool {
         (try? currentCredentials(reloading: false))?.isUsable ?? false
+    }
+
+    var userEmail: String? {
+        (try? currentCredentials(reloading: false))?.email
+    }
+
+    /// The signed-in account's email, backfilling it once for sessions saved before it was captured.
+    func accountLabel() async -> String? {
+        if let email = userEmail { return email }
+        guard !backfillAttempted, isSignedIn else { return nil }
+        backfillAttempted = true
+        return await backfillEmail()
     }
 
     @discardableResult
@@ -111,6 +141,7 @@ actor AuthManager {
     func signOut() throws {
         cancelSignIn()
         cached = nil
+        backfillAttempted = false
         try KeychainStore.delete(for: .claude)
     }
 
@@ -136,10 +167,48 @@ actor AuthManager {
         )
 
         let authorization = try await flow.authorize()
-        let credentials = try await exchangeCode(authorization)
+        var credentials = try await exchangeCode(authorization)
+        credentials.email = try? await fetchProfileEmail(token: credentials.accessToken)
         try KeychainStore.save(credentials, for: .claude)
         cached = credentials
         return credentials
+    }
+
+    private func backfillEmail() async -> String? {
+        do {
+            let token = try await accessToken()
+            guard let email = try await fetchProfileEmail(token: token), !email.isEmpty else {
+                return nil
+            }
+            try saveEmail(email)
+            return email
+        } catch {
+            return nil
+        }
+    }
+
+    private func saveEmail(_ email: String) throws {
+        guard var credentials = try? currentCredentials(reloading: true), credentials.email != email else {
+            return
+        }
+        credentials.email = email
+        try KeychainStore.save(credentials, for: .claude)
+        cached = credentials
+    }
+
+    private func fetchProfileEmail(token: String) async throws -> String? {
+        var request = URLRequest(url: profileURL)
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw AuthError.refreshFailed(status: status, detail: TokenErrorBody.describe(data))
+        }
+        return ClaudeProfile(data: data).email
     }
 
     private func currentCredentials(reloading: Bool) throws -> AuthCredentials {

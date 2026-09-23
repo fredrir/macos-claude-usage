@@ -94,7 +94,7 @@ struct StatusMenuTests {
         }
 
         let live = try rasterize(
-            GaugeRenderer.image(for: [.usage(fullBucket, dimmed: false)]),
+            GaugeRenderer.image(for: [.usage(fullBucket)]),
             scale: 2
         )
         #expect(strongestAlpha(in: bitmap) < strongestAlpha(in: live))
@@ -112,11 +112,29 @@ struct StatusMenuTests {
         )
 
         let bitmap = try rasterize(
-            GaugeRenderer.image(for: [.usage(halfUsed, dimmed: false)]),
+            GaugeRenderer.image(for: [.usage(halfUsed)]),
             scale: 2
         )
 
         #expect(paintedRows(in: bitmap, columns: 0..<bitmap.pixelsWide).count == 4)
+    }
+
+    @Test("A gauge the account has used up disappears, unlike one with no account")
+    func exhaustedGaugeDisappears() throws {
+        let exhausted = UsageBucket(
+            id: "claude-session",
+            title: "Current session",
+            utilization: 100,
+            resetsAt: nil,
+            severity: nil,
+            role: .session
+        )
+
+        let present = try rasterize(GaugeRenderer.image(for: [.usage(exhausted)]), scale: 2)
+        let missing = try rasterize(GaugeRenderer.image(for: [.empty]), scale: 2)
+
+        #expect(paintedRows(in: present, columns: 0..<present.pixelsWide).isEmpty)
+        #expect(paintedRows(in: missing, columns: 0..<missing.pixelsWide).count == 7)
     }
 
     private var fullBucket: UsageBucket {

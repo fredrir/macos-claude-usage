@@ -62,6 +62,22 @@ struct AccountSessionTests {
         #expect(!store.claudeIsSignedIn)
     }
 
+    @Test("A signed-in provider exposes the account label for the settings row")
+    func signedInProviderExposesLabel() async {
+        let store = UsageStore(
+            fixture: [],
+            lastUpdated: now,
+            claudeAuth: FixedAuthentication(signedIn: true, label: "claude@example.com"),
+            codexAuth: FixedAuthentication(signedIn: true, label: "codex@example.com"),
+            clock: FixedAccountDateProvider(now: now)
+        )
+
+        await store.refreshAuthState()
+
+        #expect(store.claudeEmail == "claude@example.com")
+        #expect(store.codexEmail == "codex@example.com")
+    }
+
     @Test("Signed-out providers are never fetched")
     func signedOutProvidersAreNotFetched() async throws {
         let directory = try temporaryDirectory()

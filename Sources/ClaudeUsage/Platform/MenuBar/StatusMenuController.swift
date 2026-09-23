@@ -39,9 +39,9 @@ final class StatusMenuController: NSObject {
         guard let button = statusItem.button else { return }
 
         let slots = [
-            slot(for: store.buckets.session, dimmed: store.isStale),
-            slot(for: store.buckets.fable, dimmed: store.isStale),
-            slot(for: store.codexBuckets.first, dimmed: store.codexIsStale),
+            slot(for: store.buckets.session),
+            slot(for: store.buckets.fable),
+            slot(for: store.codexBuckets.first),
         ]
 
         var rendered: NSImage?
@@ -53,9 +53,9 @@ final class StatusMenuController: NSObject {
         button.setAccessibilityValue(tooltip)
     }
 
-    private func slot(for bucket: UsageBucket?, dimmed: Bool) -> GaugeRenderer.Slot {
+    private func slot(for bucket: UsageBucket?) -> GaugeRenderer.Slot {
         guard let bucket else { return .empty }
-        return .usage(bucket, dimmed: dimmed)
+        return .usage(bucket)
     }
 
     private var tooltip: String {

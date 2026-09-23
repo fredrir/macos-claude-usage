@@ -10,7 +10,7 @@ protocol ProviderAuthenticating: Sendable {
 
 struct ClaudeAuthentication: ProviderAuthenticating {
     func isSignedIn() async -> Bool { await AuthManager.shared.isSignedIn }
-    func accountLabel() async -> String? { nil }
+    func accountLabel() async -> String? { await AuthManager.shared.accountLabel() }
     func signIn() async throws { try await AuthManager.shared.startSignIn() }
     func signOut() async throws { try await AuthManager.shared.signOut() }
     func cancelSignIn() async { await AuthManager.shared.cancelSignIn() }

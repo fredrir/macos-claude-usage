@@ -36,7 +36,7 @@ struct SettingsView: View {
                     isSignedIn: store.claudeIsSignedIn,
                     isSigningIn: store.isSigningInClaude,
                     isSigningOut: store.isSigningOutClaude,
-                    connectedTitle: "Connected",
+                    connectedTitle: store.claudeEmail ?? "Connected",
                     disconnectedDetail: "Sign in with your browser to track Claude usage limits",
                     feedback: store.claudeAuthFeedback,
                     signIn: { store.signInClaude() },
@@ -45,7 +45,7 @@ struct SettingsView: View {
                 )
             }
 
-            Section("Codex / ChatGPT Account") {
+            Section("OpenAI Account") {
                 AccountRow(
                     isSignedIn: store.codexIsSignedIn,
                     isSigningIn: store.isSigningInCodex,

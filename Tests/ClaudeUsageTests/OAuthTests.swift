@@ -107,6 +107,18 @@ struct OAuthTests {
         #expect(error.errorDescription?.contains("invalid_grant") == true)
     }
 
+    @Test("The Claude profile response yields the account email")
+    func claudeProfileExtractsEmail() {
+        let profile = Data(
+            #"{"account":{"email":"user@example.com","full_name":"A User"}}"#.utf8
+        )
+        #expect(ClaudeProfile(data: profile).email == "user@example.com")
+
+        #expect(ClaudeProfile(data: Data(#"{"account":{}}"#.utf8)).email == nil)
+        #expect(ClaudeProfile(data: Data("{}".utf8)).email == nil)
+        #expect(ClaudeProfile(data: Data("not json".utf8)).email == nil)
+    }
+
     @Test("AuthCredentials encodes and decodes properly")
     func authCredentialsCodable() throws {
         let creds = AuthCredentials(

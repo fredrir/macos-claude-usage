@@ -40,6 +40,7 @@ final class UsageStore: ObservableObject {
     }
     @Published private(set) var claudeIsSignedIn: Bool = false
     @Published private(set) var codexIsSignedIn: Bool = false
+    @Published private(set) var claudeEmail: String?
     @Published private(set) var codexEmail: String?
     @Published private(set) var isSigningInClaude: Bool = false
     @Published private(set) var isSigningInCodex: Bool = false
@@ -135,6 +136,7 @@ final class UsageStore: ObservableObject {
     func refreshAuthState() async {
         let claudeSignedIn = await claudeAuth.isSignedIn()
         let codexSignedIn = await codexAuth.isSignedIn()
+        claudeEmail = await claudeAuth.accountLabel()
         codexEmail = await codexAuth.accountLabel()
         claudeIsSignedIn = claudeSignedIn
         codexIsSignedIn = codexSignedIn
@@ -248,12 +250,14 @@ final class UsageStore: ObservableObject {
     private func clearClaude() {
         buckets = []
         lastUpdated = nil
+        claudeEmail = nil
         if status != .signedOut { status = .signedOut }
     }
 
     private func clearCodex() {
         codexBuckets = []
         codexLastUpdated = nil
+        codexEmail = nil
         if codexStatus != .signedOut { codexStatus = .signedOut }
     }
 
