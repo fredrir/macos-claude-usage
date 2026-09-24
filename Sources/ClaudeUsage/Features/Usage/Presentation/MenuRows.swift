@@ -22,6 +22,7 @@ enum MenuMetrics {
 
 struct ProviderHeaderRow: View {
     let title: String
+    @ObservedObject var store: UsageStore
     var refresh: (() -> Void)?
 
     var body: some View {
@@ -33,8 +34,13 @@ struct ProviderHeaderRow: View {
             Spacer(minLength: 8)
 
             if let refresh {
-                MenuIconButton(systemName: "arrow.clockwise", help: "Refresh", action: refresh)
-                    .accessibilityLabel("Refresh usage")
+                MenuIconButton(
+                    systemName: "arrow.clockwise",
+                    help: "Refresh",
+                    isSpinning: store.isRefreshing,
+                    action: refresh
+                )
+                .accessibilityLabel("Refresh usage")
             }
         }
         .padding(MenuMetrics.rowInsets)
@@ -139,15 +145,18 @@ struct SignInMenuRow: View {
 private struct MenuIconButton: View {
     let systemName: String
     let help: String
+    var isSpinning: Bool = false
     let action: () -> Void
 
     @State private var isHovered = false
+    @State private var angle: Double = 0
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(MenuMetrics.secondaryLabel)
+                .rotationEffect(.degrees(angle))
                 .frame(width: 18, height: 18)
                 .background {
                     Circle().fill(Color.primary.opacity(isHovered ? 0.12 : 0))
@@ -157,6 +166,21 @@ private struct MenuIconButton: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .help(help)
+        .onAppear { updateSpin() }
+        .onChange(of: isSpinning) { _, _ in updateSpin() }
+    }
+
+    private func updateSpin() {
+        if isSpinning {
+            angle = 0
+            withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                angle = 360
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.2)) {
+                angle = 0
+            }
+        }
     }
 }
 

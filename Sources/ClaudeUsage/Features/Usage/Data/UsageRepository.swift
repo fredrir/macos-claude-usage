@@ -78,7 +78,7 @@ actor UsageRepository {
         persistPollingStateBestEffort(context: "sign-in")
     }
 
-    func refresh() async -> UsageRefreshOutcome {
+    func refresh(force: Bool = false) async -> UsageRefreshOutcome {
         loadPollingStateIfNeeded()
 
         let startedAt = clock.now
@@ -86,7 +86,11 @@ actor UsageRepository {
         case .allowed:
             break
         case .deferred(let until, let restriction):
-            return .deferred(until: until, restriction: restriction)
+            // A manual refresh should not be held back by our own spacing floor, but
+            // server penalties, auth waits and error backoff still apply.
+            guard force, restriction == .minimumSpacing else {
+                return .deferred(until: until, restriction: restriction)
+            }
         }
 
         pollingState = policy.recordingAttempt(in: pollingState, at: startedAt)

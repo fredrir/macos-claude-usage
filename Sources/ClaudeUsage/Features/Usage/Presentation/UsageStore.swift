@@ -48,6 +48,7 @@ final class UsageStore: ObservableObject {
     @Published private(set) var isSigningOutCodex: Bool = false
     @Published private(set) var claudeAuthFeedback: AuthFeedback?
     @Published private(set) var codexAuthFeedback: AuthFeedback?
+    @Published private(set) var isRefreshing: Bool = false
 
     private let repository: UsageRepository?
     private let codexRepository: CodexUsageRepository?
@@ -109,11 +110,13 @@ final class UsageStore: ObservableObject {
     func start() {
         guard timer == nil, repository != nil || codexRepository != nil else { return }
 
+        isRefreshing = true
         refreshTask = Task { [weak self] in
             guard let self else { return }
             await loadCachedSnapshots()
             await performRefresh(manual: false)
             refreshTask = nil
+            isRefreshing = false
         }
 
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -271,10 +274,12 @@ final class UsageStore: ObservableObject {
 
     private func scheduleRefresh(manual: Bool) {
         guard refreshTask == nil, repository != nil || codexRepository != nil else { return }
+        isRefreshing = true
         refreshTask = Task { [weak self] in
             guard let self else { return }
             await performRefresh(manual: manual)
             refreshTask = nil
+            isRefreshing = false
         }
     }
 
@@ -300,11 +305,11 @@ final class UsageStore: ObservableObject {
         await withTaskGroup(of: ProviderResult.self) { group in
             if let repository, claudeIsSignedIn {
                 Log.write("fetch: requesting (\(reason))")
-                group.addTask { .claude(await repository.refresh()) }
+                group.addTask { .claude(await repository.refresh(force: manual)) }
             }
             if let codexRepository, codexIsSignedIn {
                 Log.write("codex fetch: requesting (\(reason))")
-                group.addTask { .codex(await codexRepository.refresh()) }
+                group.addTask { .codex(await codexRepository.refresh(force: manual)) }
             }
 
             for await result in group {

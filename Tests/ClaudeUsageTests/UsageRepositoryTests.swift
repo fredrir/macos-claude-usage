@@ -72,6 +72,60 @@ struct UsageRepositoryTests {
         #expect(await client.requestCount == 1)
     }
 
+    @Test("A forced refresh bypasses the client-side spacing floor")
+    func forcedRefreshBypassesMinimumSpacing() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let client = SuccessfulUsageClient()
+        let repository = makeRepository(directory: directory, client: client, now: now)
+
+        guard case .updated = await repository.refresh() else {
+            Issue.record("Expected the first request to update the snapshot")
+            return
+        }
+
+        let restarted = makeRepository(
+            directory: directory,
+            client: client,
+            now: now.addingTimeInterval(60)
+        )
+        guard case .deferred(let until, let restriction) = await restarted.refresh() else {
+            Issue.record("Expected an unforced refresh to honor persisted spacing")
+            return
+        }
+        #expect(until == now.addingTimeInterval(15 * 60))
+        #expect(restriction == .minimumSpacing)
+
+        guard case .updated = await restarted.refresh(force: true) else {
+            Issue.record("Expected a forced refresh to bypass spacing")
+            return
+        }
+        #expect(await client.requestCount == 2)
+    }
+
+    @Test("A forced refresh still respects a server penalty")
+    func forcedRefreshHonorsServerPenalty() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let client = RateLimitedUsageClient(retryAfter: 10 * 60)
+        let repository = makeRepository(directory: directory, client: client, now: now)
+
+        guard case .deferred(_, let restriction) = await repository.refresh(force: true) else {
+            Issue.record("Expected the forced request to record the server penalty")
+            return
+        }
+        #expect(restriction == .serverRateLimit)
+
+        guard case .deferred(_, let retryRestriction) = await repository.refresh(force: true) else {
+            Issue.record("Expected the forced retry to honor the server penalty")
+            return
+        }
+        #expect(retryRestriction == .serverRateLimit)
+        #expect(await client.requestCount == 1)
+    }
+
     private func makeRepository(
         directory: URL,
         client: some UsageFetching,

@@ -111,6 +111,56 @@ struct AccountSessionTests {
         #expect(store.codexStatus == .signedOut)
     }
 
+    @Test("A manual refresh fetches even inside the spacing window")
+    func manualRefreshBypassesSpacing() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let client = CountingUsageClient()
+        let store = makeCountingStore(directory: directory, client: client)
+
+        await store.performRefresh(manual: false)
+        #expect(await client.requestCount == 1)
+
+        await store.performRefresh(manual: true)
+        #expect(await client.requestCount == 2)
+    }
+
+    @Test("A manual refresh reports progress while it runs")
+    func manualRefreshReportsProgress() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let client = CountingUsageClient()
+        let store = makeCountingStore(directory: directory, client: client)
+
+        store.refreshManually()
+        #expect(store.isRefreshing)
+
+        try await settle { !store.isRefreshing }
+    }
+
+    private func makeCountingStore(
+        directory: URL,
+        client: CountingUsageClient
+    ) -> UsageStore {
+        UsageStore(
+            repository: UsageRepository(
+                client: client,
+                cacheURL: directory.appendingPathComponent("usage.json"),
+                pollingStateURL: directory.appendingPathComponent("polling.json"),
+                clock: FixedAccountDateProvider(now: now)
+            ),
+            codexRepository: CodexUsageRepository(
+                client: CountingCodexClient(),
+                cacheURL: directory.appendingPathComponent("codex-usage.json"),
+                pollingStateURL: directory.appendingPathComponent("codex-polling.json"),
+                clock: FixedAccountDateProvider(now: now)
+            ),
+            claudeAuth: FixedAuthentication(signedIn: true),
+            codexAuth: FixedAuthentication(signedIn: false),
+            clock: FixedAccountDateProvider(now: now)
+        )
+    }
+
     private func makeStore(claudeAuth: any ProviderAuthenticating) -> UsageStore {
         UsageStore(
             fixture: [

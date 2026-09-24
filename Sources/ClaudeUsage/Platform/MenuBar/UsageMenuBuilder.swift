@@ -18,6 +18,7 @@ enum UsageMenuBuilder {
 
         appendProvider(
             to: menu,
+            store: store,
             title: "Claude",
             buckets: store.buckets,
             isStale: store.isStale,
@@ -35,6 +36,7 @@ enum UsageMenuBuilder {
 
         appendProvider(
             to: menu,
+            store: store,
             title: "Codex",
             buckets: store.codexBuckets,
             isStale: store.codexIsStale,
@@ -60,6 +62,7 @@ enum UsageMenuBuilder {
 
     private static func appendProvider(
         to menu: NSMenu,
+        store: UsageStore,
         title: String,
         buckets: [UsageBucket],
         isStale: Bool,
@@ -72,7 +75,7 @@ enum UsageMenuBuilder {
         isSigningIn: Bool,
         authFailure: String? = nil
     ) {
-        menu.addItem(row(ProviderHeaderRow(title: title, refresh: refresh)))
+        menu.addItem(row(ProviderHeaderRow(title: title, store: store, refresh: refresh)))
 
         if buckets.isEmpty {
             if statusIsWarning, let statusMessage {
