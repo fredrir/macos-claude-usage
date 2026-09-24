@@ -241,8 +241,7 @@ struct StatusMenuTests {
             menu,
             from: store,
             actions: UsageMenuBuilder.Actions(
-                refreshClaude: {},
-                refreshCodex: {},
+                refresh: {},
                 signInClaude: nil,
                 signInCodex: nil,
                 settings: (target: responder, action: #selector(TestResponder.noop)),

@@ -5,8 +5,7 @@ import UsageCore
 @MainActor
 enum UsageMenuBuilder {
     struct Actions {
-        var refreshClaude: () -> Void
-        var refreshCodex: () -> Void
+        var refresh: () -> Void
         var signInClaude: (() -> Void)?
         var signInCodex: (() -> Void)?
         var settings: (target: AnyObject, action: Selector)?
@@ -26,7 +25,7 @@ enum UsageMenuBuilder {
             statusIcon: store.statusIcon,
             statusIsWarning: store.statusIsWarning,
             now: store.now,
-            refresh: actions.refreshClaude,
+            refresh: actions.refresh,
             signIn: actions.signInClaude,
             isSigningIn: store.isSigningInClaude,
             authFailure: store.claudeAuthFeedback?.failure
@@ -43,7 +42,7 @@ enum UsageMenuBuilder {
             statusIcon: store.codexStatusIcon,
             statusIsWarning: store.codexStatusIsWarning,
             now: store.now,
-            refresh: actions.refreshCodex,
+            refresh: nil,
             signIn: actions.signInCodex,
             isSigningIn: store.isSigningInCodex,
             authFailure: store.codexAuthFeedback?.failure
@@ -68,7 +67,7 @@ enum UsageMenuBuilder {
         statusIcon: String,
         statusIsWarning: Bool,
         now: Date,
-        refresh: @escaping () -> Void,
+        refresh: (() -> Void)?,
         signIn: (() -> Void)?,
         isSigningIn: Bool,
         authFailure: String? = nil

@@ -91,8 +91,7 @@ extension StatusMenuController: @MainActor NSMenuDelegate {
             menu,
             from: store,
             actions: UsageMenuBuilder.Actions(
-                refreshClaude: { [store] in store.refreshManually() },
-                refreshCodex: { [store] in store.refreshManually() },
+                refresh: { [store] in store.refreshManually() },
                 signInClaude: store.claudeIsSignedIn ? nil : { [store] in store.signInClaude() },
                 signInCodex: store.codexIsSignedIn ? nil : { [store] in store.signInCodex() },
                 settings: (target: self, action: #selector(showSettings)),

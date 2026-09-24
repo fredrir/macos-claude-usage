@@ -46,8 +46,7 @@ enum RefreshProbe {
             menu,
             from: store,
             actions: UsageMenuBuilder.Actions(
-                refreshClaude: { flag.refreshed = true },
-                refreshCodex: {},
+                refresh: { flag.refreshed = true },
                 signInClaude: nil,
                 signInCodex: nil,
                 settings: nil,

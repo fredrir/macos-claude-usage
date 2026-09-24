@@ -22,7 +22,7 @@ enum MenuMetrics {
 
 struct ProviderHeaderRow: View {
     let title: String
-    let refresh: () -> Void
+    var refresh: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -32,8 +32,10 @@ struct ProviderHeaderRow: View {
 
             Spacer(minLength: 8)
 
-            MenuIconButton(systemName: "arrow.clockwise", help: "Refresh", action: refresh)
-                .accessibilityLabel("Refresh \(title) usage")
+            if let refresh {
+                MenuIconButton(systemName: "arrow.clockwise", help: "Refresh", action: refresh)
+                    .accessibilityLabel("Refresh usage")
+            }
         }
         .padding(MenuMetrics.rowInsets)
         .frame(width: MenuMetrics.contentWidth, height: MenuMetrics.itemHeight)
