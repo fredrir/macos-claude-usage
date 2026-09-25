@@ -82,6 +82,27 @@ struct StatusMenuTests {
         #expect(menu.items.last?.title == "Quit")
     }
 
+    @Test("An open menu follows the store instead of freezing on the snapshot it opened with")
+    func openMenuFollowsStore() async throws {
+        let now = Date(timeIntervalSinceReferenceDate: 1_000)
+        let store = UsageStore(
+            fixture: [fullBucket],
+            lastUpdated: now,
+            claudeAuth: FixedAuthentication(signedIn: false),
+            codexAuth: FixedAuthentication(signedIn: false),
+            clock: FixedTestDateProvider(now: now)
+        )
+        let controller = StatusMenuController(store: store, openSettings: {})
+        let hasBucketRow = { controller.menu.items.contains { $0.view is NSHostingView<BucketMenuRow> } }
+
+        controller.menuNeedsUpdate(controller.menu)
+        controller.menuWillOpen(controller.menu)
+        #expect(hasBucketRow())
+
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!hasBucketRow())
+    }
+
     @Test("With nothing signed in the gauge keeps its shape, greyed out")
     func emptyGaugeIsGreyedOut() throws {
         let bitmap = try rasterize(GaugeRenderer.image(for: [.empty, .empty, .empty]), scale: 2)

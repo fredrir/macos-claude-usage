@@ -8,7 +8,8 @@ final class StatusMenuController: NSObject {
     private let store: UsageStore
     private let openSettings: () -> Void
     private let statusItem: NSStatusItem
-    private let menu = NSMenu()
+    let menu = NSMenu()
+    private var isMenuOpen = false
     private var cancellables: Set<AnyCancellable> = []
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -27,12 +28,34 @@ final class StatusMenuController: NSObject {
             Task { @MainActor in self?.updateStatusItem() }
         }
 
+        // Dispatch rather than RunLoop.main so updates still land while the menu is tracking.
         store.objectWillChange
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateStatusItem() }
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in self?.storeDidChange() }
             .store(in: &cancellables)
 
         updateStatusItem()
+    }
+
+    private func storeDidChange() {
+        updateStatusItem()
+        if isMenuOpen && !store.isRefreshing {
+            rebuildMenu()
+        }
+    }
+
+    private func rebuildMenu() {
+        UsageMenuBuilder.populate(
+            menu,
+            from: store,
+            actions: UsageMenuBuilder.Actions(
+                refresh: { [store] in store.refreshManually() },
+                signInClaude: store.claudeIsSignedIn ? nil : { [store] in store.signInClaude() },
+                signInCodex: store.codexIsSignedIn ? nil : { [store] in store.signInCodex() },
+                settings: (target: self, action: #selector(showSettings)),
+                quit: (target: self, action: #selector(quit))
+            )
+        )
     }
 
     private func updateStatusItem() {
@@ -86,17 +109,14 @@ extension StatusMenuController: @MainActor NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         Task { await store.refreshAuthState() }
         store.refreshIfStale()
+        rebuildMenu()
+    }
 
-        UsageMenuBuilder.populate(
-            menu,
-            from: store,
-            actions: UsageMenuBuilder.Actions(
-                refresh: { [store] in store.refreshManually() },
-                signInClaude: store.claudeIsSignedIn ? nil : { [store] in store.signInClaude() },
-                signInCodex: store.codexIsSignedIn ? nil : { [store] in store.signInCodex() },
-                settings: (target: self, action: #selector(showSettings)),
-                quit: (target: self, action: #selector(quit))
-            )
-        )
+    func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isMenuOpen = false
     }
 }
