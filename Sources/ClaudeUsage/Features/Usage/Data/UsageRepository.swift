@@ -5,6 +5,7 @@ enum UsageRefreshOutcome: Sendable {
     case updated(UsageSnapshot)
     case deferred(until: Date, restriction: PollingRestriction)
     case authenticationFailed(String)
+    case offline(String)
     case failed(String)
 }
 
@@ -86,9 +87,8 @@ actor UsageRepository {
         case .allowed:
             break
         case .deferred(let until, let restriction):
-            // A manual refresh should not be held back by our own spacing floor, but
-            // server penalties, auth waits and error backoff still apply.
-            guard force, restriction == .minimumSpacing else {
+            // A manual refresh skips our own spacing and error backoff, never server penalties or auth waits.
+            guard force, restriction == .minimumSpacing || restriction == .errorBackoff else {
                 return .deferred(until: until, restriction: restriction)
             }
         }
@@ -139,6 +139,8 @@ actor UsageRepository {
             return recordAuthenticationFailure(error.localizedDescription)
         } catch let error as KeychainError {
             return recordAuthenticationFailure(error.localizedDescription)
+        } catch let error as URLError where error.isConnectivityFailure {
+            return .offline(error.localizedDescription)
         } catch is CancellationError {
             return .failed("Refresh cancelled.")
         } catch {

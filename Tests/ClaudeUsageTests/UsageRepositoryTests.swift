@@ -126,6 +126,56 @@ struct UsageRepositoryTests {
         #expect(await client.requestCount == 1)
     }
 
+    @Test("A forced refresh bypasses error backoff")
+    func forcedRefreshBypassesErrorBackoff() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let client = FlakyUsageClient(failures: [UsageAPIError.http(status: 500)])
+        let repository = makeRepository(directory: directory, client: client, now: now)
+
+        guard case .failed = await repository.refresh() else {
+            Issue.record("Expected the first request to fail")
+            return
+        }
+        guard case .deferred(_, let restriction) = await repository.refresh() else {
+            Issue.record("Expected an unforced retry to honor error backoff")
+            return
+        }
+        #expect(restriction == .errorBackoff)
+
+        guard case .updated = await repository.refresh(force: true) else {
+            Issue.record("Expected a forced refresh to bypass error backoff")
+            return
+        }
+        #expect(await client.requestCount == 2)
+    }
+
+    @Test("Losing connectivity reports offline without escalating error backoff")
+    func connectivityFailureReportsOffline() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let client = FlakyUsageClient(failures: [URLError(.notConnectedToInternet)])
+        let repository = makeRepository(directory: directory, client: client, now: now)
+
+        guard case .offline = await repository.refresh() else {
+            Issue.record("Expected a connectivity failure to report offline")
+            return
+        }
+        guard case .deferred(_, let restriction) = await repository.refresh() else {
+            Issue.record("Expected an unforced retry to honor spacing")
+            return
+        }
+        #expect(restriction == .minimumSpacing)
+
+        let state = try JSONDecoder().decode(
+            PollingState.self,
+            from: Data(contentsOf: directory.appendingPathComponent("polling.json"))
+        )
+        #expect(state.errorBackoff == PollingPolicy().initialErrorBackoff)
+    }
+
     private func makeRepository(
         directory: URL,
         client: some UsageFetching,
@@ -172,6 +222,23 @@ private actor RateLimitedUsageClient: UsageFetching {
     func fetch() async throws -> UsageFetchResult {
         requestCount += 1
         throw UsageAPIError.rateLimited(retryAfter: retryAfter)
+    }
+}
+
+private actor FlakyUsageClient: UsageFetching {
+    private(set) var requestCount = 0
+    private var failures: [any Error]
+
+    init(failures: [any Error]) {
+        self.failures = failures
+    }
+
+    func fetch() async throws -> UsageFetchResult {
+        requestCount += 1
+        if !failures.isEmpty { throw failures.removeFirst() }
+        let raw = Data(#"{ "five_hour": { "utilization": 42 } }"#.utf8)
+        let response = try JSONDecoder().decode(UsageResponseDTO.self, from: raw)
+        return UsageFetchResult(response: response, raw: raw)
     }
 }
 

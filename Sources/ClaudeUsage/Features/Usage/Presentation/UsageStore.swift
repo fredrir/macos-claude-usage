@@ -11,6 +11,7 @@ final class UsageStore: ObservableObject {
         case throttled(until: Date)
         case rateLimited(until: Date)
         case authExpired(String)
+        case offline
         case failed(String)
     }
 
@@ -55,6 +56,7 @@ final class UsageStore: ObservableObject {
     private let claudeAuth: any ProviderAuthenticating
     private let codexAuth: any ProviderAuthenticating
     private let clock: any DateProvider
+    private let network: NetworkMonitor?
     private var refreshTask: Task<Void, Never>?
     private var timer: Timer?
 
@@ -70,13 +72,15 @@ final class UsageStore: ObservableObject {
         codexRepository: CodexUsageRepository = CodexUsageRepository(),
         claudeAuth: any ProviderAuthenticating = ClaudeAuthentication(),
         codexAuth: any ProviderAuthenticating = CodexAuthentication(),
-        clock: any DateProvider = SystemDateProvider()
+        clock: any DateProvider = SystemDateProvider(),
+        network: NetworkMonitor? = NetworkMonitor()
     ) {
         self.repository = repository
         self.codexRepository = codexRepository
         self.claudeAuth = claudeAuth
         self.codexAuth = codexAuth
         self.clock = clock
+        self.network = network
         let stored = UserDefaults.standard.double(forKey: "pollInterval")
         pollInterval = stored > 0 ? stored : 30 * 60
     }
@@ -95,6 +99,7 @@ final class UsageStore: ObservableObject {
     ) {
         repository = nil
         codexRepository = nil
+        network = nil
         self.claudeAuth = claudeAuth
         self.codexAuth = codexAuth
         self.clock = clock
@@ -109,6 +114,9 @@ final class UsageStore: ObservableObject {
 
     func start() {
         guard timer == nil, repository != nil || codexRepository != nil else { return }
+
+        network?.onReconnect = { [weak self] in self?.refreshAfterReconnect() }
+        network?.start()
 
         isRefreshing = true
         refreshTask = Task { [weak self] in
@@ -133,6 +141,12 @@ final class UsageStore: ObservableObject {
     }
 
     func refreshManually() {
+        scheduleRefresh(manual: true)
+    }
+
+    private func refreshAfterReconnect() {
+        guard status == .offline || codexStatus == .offline else { return }
+        Log.write("network: reconnected, refreshing")
         scheduleRefresh(manual: true)
     }
 
@@ -301,6 +315,13 @@ final class UsageStore: ObservableObject {
 
         await refreshAuthState()
 
+        if let network, !network.isOnline {
+            if claudeIsSignedIn { status = .offline }
+            if codexIsSignedIn { codexStatus = .offline }
+            Log.write("fetch: skipped, offline")
+            return
+        }
+
         let reason = manual ? "manual" : "scheduled"
         await withTaskGroup(of: ProviderResult.self) { group in
             if let repository, claudeIsSignedIn {
@@ -350,13 +371,17 @@ final class UsageStore: ObservableObject {
                     status = .failed("Temporary error — waiting before retrying.")
                 }
             case .minimumSpacing:
-                status = .throttled(until: until)
+                if status != .offline { status = .throttled(until: until) }
             }
             Log.write("fetch: deferred until \(Self.clockText(until)) (\(restriction.rawValue))")
 
         case .authenticationFailed(let message):
             status = .authExpired(message)
             Log.write("fetch: authentication failed \(message)")
+
+        case .offline(let message):
+            status = .offline
+            Log.write("fetch: offline \(message)")
 
         case .failed(let message):
             status = .failed(message)
@@ -391,13 +416,17 @@ final class UsageStore: ObservableObject {
                     codexStatus = .failed("Codex temporarily unavailable — waiting before retrying.")
                 }
             case .minimumSpacing:
-                codexStatus = .throttled(until: until)
+                if codexStatus != .offline { codexStatus = .throttled(until: until) }
             }
             Log.write("codex fetch: deferred until \(Self.clockText(until)) (\(restriction.rawValue))")
 
         case .authenticationFailed(let message):
             codexStatus = .authExpired(message)
             Log.write("codex fetch: authentication failed \(message)")
+
+        case .offline(let message):
+            codexStatus = .offline
+            Log.write("codex fetch: offline \(message)")
 
         case .failed(let message):
             codexStatus = .failed(message)
@@ -466,6 +495,8 @@ extension UsageStore {
         case .rateLimited(let until):
             guard let minutes = minutesUntil(until) else { return "Retrying…" }
             return "Rate limited — retrying in \(minutes)m"
+        case .offline:
+            return "Offline — will refresh when reconnected."
         case .authExpired(let message), .failed(let message):
             return message
         }
@@ -481,6 +512,7 @@ extension UsageStore {
         case .signedOut: "person.crop.circle.badge.xmark"
         case .rateLimited: "hourglass"
         case .authExpired: "key"
+        case .offline: "wifi.slash"
         case .failed: "exclamationmark.triangle"
         }
     }
@@ -493,7 +525,7 @@ extension UsageStore {
         switch status {
         case .signedOut: false
         case .ok, .loading, .throttled: isStale
-        case .rateLimited, .authExpired, .failed: true
+        case .rateLimited, .authExpired, .offline, .failed: true
         }
     }
 

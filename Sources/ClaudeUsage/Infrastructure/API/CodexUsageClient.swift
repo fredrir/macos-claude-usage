@@ -36,6 +36,8 @@ struct CodexUsageClient: CodexUsageFetching {
         let token: String
         do {
             token = try await accessToken()
+        } catch let error as URLError where error.isConnectivityFailure {
+            throw error
         } catch {
             throw CodexUsageError.authenticationRequired
         }
@@ -83,6 +85,8 @@ struct CodexUsageClient: CodexUsageFetching {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: urlRequest)
+        } catch let error as URLError where error.isConnectivityFailure {
+            throw error
         } catch {
             throw CodexUsageError.protocolFailure(error.localizedDescription)
         }
