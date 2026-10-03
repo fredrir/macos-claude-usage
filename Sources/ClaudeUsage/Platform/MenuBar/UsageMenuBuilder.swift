@@ -16,41 +16,10 @@ enum UsageMenuBuilder {
         menu.removeAllItems()
         menu.autoenablesItems = false
 
-        appendProvider(
-            to: menu,
-            store: store,
-            title: "Claude",
-            buckets: store.buckets,
-            isStale: store.isStale,
-            statusMessage: store.statusMessage,
-            statusIcon: store.statusIcon,
-            statusIsWarning: store.statusIsWarning,
-            now: store.now,
-            refresh: actions.refresh,
-            signIn: actions.signInClaude,
-            isSigningIn: store.isSigningInClaude,
-            authFailure: store.claudeAuthFeedback?.failure
-        )
-
-        menu.addItem(.separator())
-
-        appendProvider(
-            to: menu,
-            store: store,
-            title: "Codex",
-            buckets: store.codexBuckets,
-            isStale: store.codexIsStale,
-            statusMessage: store.codexStatusMessage,
-            statusIcon: store.codexStatusIcon,
-            statusIsWarning: store.codexStatusIsWarning,
-            now: store.now,
-            refresh: nil,
-            signIn: actions.signInCodex,
-            isSigningIn: store.isSigningInCodex,
-            authFailure: store.codexAuthFeedback?.failure
-        )
-
-        menu.addItem(.separator())
+        for (index, provider) in store.gaugeLayout.menuProviderOrder.enumerated() {
+            appendSection(for: provider, to: menu, store: store, actions: actions, isFirst: index == 0)
+            menu.addItem(.separator())
+        }
 
         if let settings = actions.settings {
             menu.addItem(command("Settings…", key: ",", target: settings.target, action: settings.action))
@@ -60,11 +29,59 @@ enum UsageMenuBuilder {
         }
     }
 
+    private static func appendSection(
+        for provider: UsageProvider,
+        to menu: NSMenu,
+        store: UsageStore,
+        actions: Actions,
+        isFirst: Bool
+    ) {
+        let refresh = isFirst ? actions.refresh : nil
+
+        switch provider {
+        case .claude:
+            appendProvider(
+                to: menu,
+                store: store,
+                title: provider.displayName,
+                buckets: store.buckets,
+                visibleBuckets: store.buckets(from: provider, in: .menu),
+                isStale: store.isStale,
+                statusMessage: store.statusMessage,
+                statusIcon: store.statusIcon,
+                statusIsWarning: store.statusIsWarning,
+                now: store.now,
+                refresh: refresh,
+                signIn: actions.signInClaude,
+                isSigningIn: store.isSigningInClaude,
+                authFailure: store.claudeAuthFeedback?.failure
+            )
+        case .codex:
+            appendProvider(
+                to: menu,
+                store: store,
+                title: provider.displayName,
+                buckets: store.codexBuckets,
+                visibleBuckets: store.buckets(from: provider, in: .menu),
+                isStale: store.codexIsStale,
+                statusMessage: store.codexStatusMessage,
+                statusIcon: store.codexStatusIcon,
+                statusIsWarning: store.codexStatusIsWarning,
+                now: store.now,
+                refresh: refresh,
+                signIn: actions.signInCodex,
+                isSigningIn: store.isSigningInCodex,
+                authFailure: store.codexAuthFeedback?.failure
+            )
+        }
+    }
+
     private static func appendProvider(
         to menu: NSMenu,
         store: UsageStore,
         title: String,
         buckets: [UsageBucket],
+        visibleBuckets: [UsageBucket],
         isStale: Bool,
         statusMessage: String?,
         statusIcon: String,
@@ -96,7 +113,11 @@ enum UsageMenuBuilder {
                 menu.addItem(row(SignInMenuRow(isSigningIn: isSigningIn, signIn: signIn)))
             }
         } else {
-            for bucket in buckets {
+            if visibleBuckets.isEmpty {
+                menu.addItem(row(PlaceholderMenuRow(message: "All limits hidden in Settings")))
+            }
+
+            for bucket in visibleBuckets {
                 menu.addItem(row(BucketMenuRow(bucket: bucket, dimmed: isStale, now: now)))
             }
 

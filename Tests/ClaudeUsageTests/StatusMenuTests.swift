@@ -82,6 +82,27 @@ struct StatusMenuTests {
         #expect(menu.items.last?.title == "Quit")
     }
 
+    @Test("The menu lists only the limits chosen for it, in the order chosen in Settings")
+    func menuFollowsGaugeLayout() {
+        let now = Date(timeIntervalSinceReferenceDate: 1_000)
+        let store = UsageStore(
+            fixture: [bucket("session", role: .session), bucket("weekly_all", role: .weeklyAll)],
+            codexBuckets: [bucket("codex-5h", role: .other)],
+            lastUpdated: now,
+            clock: FixedTestDateProvider(now: now)
+        )
+        store.setGauge("claude/session", shown: false, in: .menu)
+        store.setGauge("claude/session", shown: true, in: .menuBar)
+        store.moveGauges(fromOffsets: IndexSet(integer: 2), toOffset: 0)
+
+        let menu = populatedMenu(from: store)
+        let rows = menu.items.compactMap { ($0.view as? NSHostingView<BucketMenuRow>)?.rootView.bucket.id }
+        let headers = menu.items.compactMap { ($0.view as? NSHostingView<ProviderHeaderRow>)?.rootView.title }
+
+        #expect(rows == ["codex-5h", "weekly_all"])
+        #expect(headers == ["Codex", "Claude"])
+    }
+
     @Test("An open menu follows the store instead of freezing on the snapshot it opened with")
     func openMenuFollowsStore() async throws {
         let now = Date(timeIntervalSinceReferenceDate: 1_000)
@@ -167,6 +188,10 @@ struct StatusMenuTests {
             severity: nil,
             role: .session
         )
+    }
+
+    private func bucket(_ id: String, role: UsageRole) -> UsageBucket {
+        UsageBucket(id: id, title: id, utilization: 0, resetsAt: nil, severity: nil, role: role)
     }
 
     private func strongestAlpha(in bitmap: NSBitmapImageRep) -> CGFloat {
@@ -255,7 +280,10 @@ struct StatusMenuTests {
             lastUpdated: now,
             clock: FixedTestDateProvider(now: now)
         )
+        return populatedMenu(from: store)
+    }
 
+    private func populatedMenu(from store: UsageStore) -> NSMenu {
         let responder = TestResponder()
         let menu = NSMenu()
         UsageMenuBuilder.populate(

@@ -1,4 +1,5 @@
 import SwiftUI
+import UsageCore
 
 struct SettingsView: View {
     @ObservedObject var store: UsageStore
@@ -28,6 +29,35 @@ struct SettingsView: View {
                         .font(.callout)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section {
+                if store.gaugeLayout.entries.isEmpty {
+                    Text("Sign in to an account to choose which limits to show.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.gaugeLayout.entries) { entry in
+                        GaugeRow(
+                            entry: entry,
+                            bucket: store.bucket(for: entry),
+                            isLocked: { store.gaugeLayout.isLocked(entry, in: $0) },
+                            setShown: { store.setGauge(entry.id, shown: $0, in: $1) }
+                        )
+                    }
+                    .onMove { store.moveGauges(fromOffsets: $0, toOffset: $1) }
+                }
+            } header: {
+                HStack(spacing: GaugeRow.columnSpacing) {
+                    Text("Limits")
+                    Spacer()
+                    ForEach(GaugePlacement.allCases, id: \.self) { placement in
+                        Text(placement.columnTitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: GaugeRow.columnWidth)
+                    }
+                    Color.clear.frame(width: GaugeRow.handleWidth, height: 0)
                 }
             }
 
@@ -64,6 +94,66 @@ struct SettingsView: View {
         .onAppear {
             launchAtLogin.refresh()
             Task { await store.refreshAuthState() }
+        }
+    }
+}
+
+private struct GaugeRow: View {
+    static let columnWidth: CGFloat = 36
+    static let columnSpacing: CGFloat = 8
+    static let handleWidth: CGFloat = 16
+
+    let entry: GaugeEntry
+    let bucket: UsageBucket?
+    let isLocked: (GaugePlacement) -> Bool
+    let setShown: (Bool, GaugePlacement) -> Void
+
+    var body: some View {
+        HStack(spacing: Self.columnSpacing) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.provider.displayName + ": " + entry.title)
+                    .font(.system(size: 13))
+            }
+
+            Spacer()
+
+            ForEach(GaugePlacement.allCases, id: \.self) { placement in
+                Toggle(
+                    placement.accessibilityTitle,
+                    isOn: Binding(get: { entry.isShown(in: placement) }, set: { setShown($0, placement) })
+                )
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .disabled(isLocked(placement))
+                .help(isLocked(placement) ? "At least one gauge stays in the menu bar" : placement.accessibilityTitle)
+                .frame(width: Self.columnWidth)
+            }
+
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(.tertiary)
+                .frame(width: Self.handleWidth)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var detail: String {
+        return "\(entry.provider.displayName)"
+    }
+}
+
+extension GaugePlacement {
+    fileprivate var columnTitle: String {
+        switch self {
+        case .menuBar: "Bar"
+        case .menu: "Menu"
+        }
+    }
+
+    fileprivate var accessibilityTitle: String {
+        switch self {
+        case .menuBar: "Show in menu bar"
+        case .menu: "Show in menu"
         }
     }
 }

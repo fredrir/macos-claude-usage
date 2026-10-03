@@ -28,6 +28,7 @@ final class UsageStore: ObservableObject {
     }
 
     private static let minimumSpacing: TimeInterval = 15 * 60
+    private static let gaugeLayoutKey = "gaugeLayout"
     static let stalenessThreshold: TimeInterval = 60 * 60
 
     @Published private(set) var buckets: [UsageBucket] = []
@@ -50,6 +51,12 @@ final class UsageStore: ObservableObject {
     @Published private(set) var claudeAuthFeedback: AuthFeedback?
     @Published private(set) var codexAuthFeedback: AuthFeedback?
     @Published private(set) var isRefreshing: Bool = false
+    @Published private(set) var gaugeLayout: GaugeLayout {
+        didSet {
+            guard gaugeLayout != oldValue, let data = try? JSONEncoder().encode(gaugeLayout) else { return }
+            UserDefaults.standard.set(data, forKey: Self.gaugeLayoutKey)
+        }
+    }
 
     private let repository: UsageRepository?
     private let codexRepository: CodexUsageRepository?
@@ -83,6 +90,9 @@ final class UsageStore: ObservableObject {
         self.network = network
         let stored = UserDefaults.standard.double(forKey: "pollInterval")
         pollInterval = stored > 0 ? stored : 30 * 60
+        gaugeLayout =
+            UserDefaults.standard.data(forKey: Self.gaugeLayoutKey)
+            .flatMap { try? JSONDecoder().decode(GaugeLayout.self, from: $0) } ?? GaugeLayout()
     }
 
     init(
@@ -110,6 +120,10 @@ final class UsageStore: ObservableObject {
         self.codexBuckets = codexBuckets
         self.codexLastUpdated = codexLastUpdated ?? (codexBuckets.isEmpty ? nil : lastUpdated)
         self.codexStatus = codexStatus
+        var gaugeLayout = GaugeLayout()
+        gaugeLayout.discover(buckets, from: .claude)
+        gaugeLayout.discover(codexBuckets, from: .codex)
+        self.gaugeLayout = gaugeLayout
     }
 
     func start() {
@@ -250,6 +264,14 @@ final class UsageStore: ObservableObject {
     func cancelCodexSignIn() {
         guard isSigningInCodex else { return }
         Task { await codexAuth.cancelSignIn() }
+    }
+
+    func setGauge(_ id: GaugeEntry.ID, shown: Bool, in placement: GaugePlacement) {
+        gaugeLayout.setShown(shown, in: placement, for: id)
+    }
+
+    func moveGauges(fromOffsets source: IndexSet, toOffset destination: Int) {
+        gaugeLayout.move(fromOffsets: source, toOffset: destination)
     }
 
     private static func signInFeedback(for error: Error) -> AuthFeedback {
@@ -437,11 +459,13 @@ final class UsageStore: ObservableObject {
     private func apply(_ snapshot: UsageSnapshot) {
         buckets = snapshot.buckets
         lastUpdated = snapshot.fetchedAt
+        gaugeLayout.discover(snapshot.buckets, from: .claude)
     }
 
     private func applyCodex(_ snapshot: UsageSnapshot) {
         codexBuckets = snapshot.buckets
         codexLastUpdated = snapshot.fetchedAt
+        gaugeLayout.discover(snapshot.buckets, from: .codex)
     }
 
     private func claudeNeedsRefresh(threshold: TimeInterval) -> Bool {
@@ -466,6 +490,24 @@ final class UsageStore: ObservableObject {
 }
 
 extension UsageStore {
+    func buckets(from provider: UsageProvider) -> [UsageBucket] {
+        switch provider {
+        case .claude: buckets
+        case .codex: codexBuckets
+        }
+    }
+
+    func bucket(for entry: GaugeEntry) -> UsageBucket? {
+        buckets(from: entry.provider).first { $0.id == entry.bucketID }
+    }
+
+    func buckets(from provider: UsageProvider, in placement: GaugePlacement) -> [UsageBucket] {
+        let available = buckets(from: provider)
+        return gaugeLayout.bucketIDs(from: provider, in: placement).compactMap { id in
+            available.first { $0.id == id }
+        }
+    }
+
     var statusMessage: String? {
         statusMessage(for: status, lastUpdated: lastUpdated)
     }

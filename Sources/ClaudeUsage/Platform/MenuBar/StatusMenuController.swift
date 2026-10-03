@@ -61,11 +61,7 @@ final class StatusMenuController: NSObject {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
 
-        let slots = [
-            slot(for: store.buckets.session),
-            slot(for: store.buckets.fable),
-            slot(for: store.codexBuckets.first),
-        ]
+        let slots = store.gaugeLayout.entries(in: .menuBar).map { slot(for: store.bucket(for: $0)) }
 
         var rendered: NSImage?
         button.effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -82,12 +78,12 @@ final class StatusMenuController: NSObject {
     }
 
     private var tooltip: String {
-        var lines = store.buckets.map { "\($0.title): \(Int($0.remaining.rounded()))% left" }
-        if let message = store.statusMessage { lines.append(message) }
-        if let codex = store.codexBuckets.first {
-            lines.append("Codex \(codex.title): \(Int(codex.remaining.rounded()))% left")
+        var lines = store.gaugeLayout.entries(in: .menuBar).compactMap { entry in
+            store.bucket(for: entry).map {
+                "\(entry.provider.displayName) \($0.title): \(Int($0.remaining.rounded()))% left"
+            }
         }
-        if let message = store.codexStatusMessage { lines.append(message) }
+        lines += [store.statusMessage, store.codexStatusMessage].compactMap(\.self)
 
         guard lines.isEmpty else { return lines.joined(separator: "\n") }
         return store.claudeIsSignedIn || store.codexIsSignedIn
