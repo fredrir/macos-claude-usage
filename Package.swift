@@ -8,6 +8,9 @@ let package = Package(
         .executable(name: "ClaudeUsage", targets: ["ClaudeUsage"]),
         .library(name: "UsageCore", targets: ["UsageCore"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "3.1.0")
+    ],
     targets: [
         .target(
             name: "UsageCore",
@@ -16,7 +19,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "ClaudeUsage",
-            dependencies: ["UsageCore"],
+            dependencies: ["UsageCore", "KeyboardShortcuts"],
             path: "Sources/ClaudeUsage",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

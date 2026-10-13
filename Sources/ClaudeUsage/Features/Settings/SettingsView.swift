@@ -1,3 +1,4 @@
+import KeyboardShortcuts
 import SwiftUI
 import UsageCore
 
@@ -30,6 +31,10 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+
+            Section("Keyboard Shortcut") {
+                KeyboardShortcuts.Recorder("Toggle menu", name: .toggleMenu)
             }
 
             Section {

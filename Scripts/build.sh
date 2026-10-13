@@ -84,6 +84,7 @@ rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS" "${APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_BIN_DIR}/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp Resources/Info.plist "${APP_BUNDLE}/Contents/Info.plist"
+find -H "${BUILD_BIN_DIR}" -maxdepth 1 -name '*.bundle' -exec cp -R {} "${APP_BUNDLE}/Contents/Resources/" \;
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   log "Embedding .env into bundle"
   grep -E '^(OPENAI_|CLAUDE_)' "${REPO_ROOT}/.env" >"${APP_BUNDLE}/Contents/Resources/.env" || true

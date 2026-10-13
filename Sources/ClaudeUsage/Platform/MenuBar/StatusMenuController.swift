@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import KeyboardShortcuts
 import SwiftUI
 import UsageCore
 
@@ -12,6 +13,7 @@ final class StatusMenuController: NSObject {
     private var isMenuOpen = false
     private var cancellables: Set<AnyCancellable> = []
     private var appearanceObservation: NSKeyValueObservation?
+    private var shortcutTask: Task<Void, Never>?
 
     init(store: UsageStore, openSettings: @escaping () -> Void) {
         self.store = store
@@ -34,7 +36,24 @@ final class StatusMenuController: NSObject {
             .sink { [weak self] _ in self?.storeDidChange() }
             .store(in: &cancellables)
 
+        shortcutTask = Task { [weak self] in
+            for await _ in KeyboardShortcuts.events(.keyDown, for: .toggleMenu) {
+                self?.toggleMenu()
+            }
+        }
+
         updateStatusItem()
+    }
+
+    private func toggleMenu() {
+        if isMenuOpen {
+            menu.cancelTracking()
+        } else {
+            // performClick blocks until the menu closes; inside a main queue block that stalls the main actor too.
+            RunLoop.main.perform { [weak self] in
+                MainActor.assumeIsolated { self?.statusItem.button?.performClick(nil) }
+            }
+        }
     }
 
     private func storeDidChange() {
@@ -115,4 +134,8 @@ extension StatusMenuController: @MainActor NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         isMenuOpen = false
     }
+}
+
+extension KeyboardShortcuts.Name {
+    static let toggleMenu = Self("toggleMenu")
 }

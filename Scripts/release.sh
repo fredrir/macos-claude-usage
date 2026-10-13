@@ -121,6 +121,7 @@ for architecture in arm64 x86_64; do
   lipo -verify_arch "${architecture}" "${APP_EXECUTABLE}"
 done
 cp "${INFO_PLIST}" "${APP_CONTENTS}/Info.plist"
+find -H "$(dirname "${SWIFT_BINARIES[0]}")" -maxdepth 1 -name '*.bundle' -exec cp -R {} "${APP_CONTENTS}/Resources/" \;
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # Embed runtime service endpoints and client IDs (excluding personal Apple credentials)
   grep -E '^(OPENAI_|CLAUDE_)' "${REPO_ROOT}/.env" >"${APP_CONTENTS}/Resources/.env" || true
@@ -151,7 +152,7 @@ while IFS= read -r -d '' bundle; do
   sign_path "${bundle}"
 done < <(
   find "${APP_CONTENTS}" -depth -type d \
-    \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' \) \
+    \( -name '*.framework' -o -name '*.xpc' -o -name '*.appex' -o -name '*.app' -o -name '*.bundle' \) \
     -print0
 )
 
