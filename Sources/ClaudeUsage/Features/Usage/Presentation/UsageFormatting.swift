@@ -1,4 +1,17 @@
 import Foundation
+import UsageCore
+
+enum CreditFormatter {
+    static func text(for credits: CreditBalance?) -> String {
+        guard let credits else { return "Balance unavailable" }
+        if credits.isUnlimited { return "Unlimited credits" }
+        guard let amount = credits.amount else { return "Balance unavailable" }
+        if let currency = credits.currency {
+            return amount.formatted(.currency(code: currency)) + " left"
+        }
+        return amount.formatted(.number.precision(.fractionLength(0...2))) + " credits left"
+    }
+}
 
 enum ResetFormatter {
     static func text(for date: Date?, relativeTo now: Date) -> String? {

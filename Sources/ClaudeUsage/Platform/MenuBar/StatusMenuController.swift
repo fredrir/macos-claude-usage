@@ -80,7 +80,11 @@ final class StatusMenuController: NSObject {
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
 
-        let slots = store.gaugeLayout.entries(in: .menuBar).map { slot(for: store.bucket(for: $0)) }
+        let slots =
+            store.gaugeLayout.entries(in: .menuBar).map { slot(for: store.bucket(for: $0)) }
+            + store.creditProviders(in: .menuBar).map {
+                GaugeRenderer.Slot.credit(fraction: store.creditFraction(for: $0))
+            }
 
         var rendered: NSImage?
         button.effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -101,6 +105,9 @@ final class StatusMenuController: NSObject {
             store.bucket(for: entry).map {
                 "\(entry.provider.displayName) \($0.title): \(Int($0.remaining.rounded()))% left"
             }
+        }
+        lines += store.creditProviders(in: .menuBar).map {
+            "\($0.displayName) credits: \(CreditFormatter.text(for: store.credits(for: $0)))"
         }
         lines += [store.statusMessage, store.codexStatusMessage].compactMap(\.self)
 

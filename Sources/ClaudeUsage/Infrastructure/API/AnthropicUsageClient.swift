@@ -24,6 +24,7 @@ enum UsageAPIError: LocalizedError, Sendable {
 struct UsageFetchResult: Sendable {
     let response: UsageResponseDTO
     let raw: Data
+    var credits: CreditBalance? = nil
 }
 
 protocol UsageFetching: Sendable {
@@ -112,7 +113,11 @@ struct AnthropicUsageClient: UsageFetching {
 
         switch http.statusCode {
         case 200..<300:
-            return UsageFetchResult(response: try Self.decode(data), raw: data)
+            let response = try Self.decode(data)
+            let credits = try? await ClaudeCreditClient(usageEndpoint: endpoint, session: session).fetch(
+                accessToken: token)
+            try Task.checkCancellation()
+            return UsageFetchResult(response: response, raw: data, credits: credits)
         case 401, 403:
             throw UsageAPIError.unauthorized
         case 429:

@@ -38,6 +38,22 @@ struct SettingsView: View {
             }
 
             Section {
+                ForEach(UsageProvider.allCases, id: \.self) { provider in
+                    CreditSettingsRow(provider: provider, store: store)
+                }
+            } header: {
+                HStack(spacing: GaugeRow.columnSpacing) {
+                    Text("Purchased credits")
+                    Spacer()
+                    ForEach(GaugePlacement.allCases, id: \.self) { placement in
+                        Text(placement.columnTitle)
+                            .font(.system(size: 11))
+                            .frame(width: GaugeRow.columnWidth)
+                    }
+                }
+            }
+
+            Section {
                 if store.gaugeLayout.entries.isEmpty {
                     Text("Sign in to an account to choose which limits to show.")
                         .foregroundStyle(.secondary)
@@ -45,8 +61,6 @@ struct SettingsView: View {
                     ForEach(store.gaugeLayout.entries) { entry in
                         GaugeRow(
                             entry: entry,
-                            bucket: store.bucket(for: entry),
-                            isLocked: { store.gaugeLayout.isLocked(entry, in: $0) },
                             setShown: { store.setGauge(entry.id, shown: $0, in: $1) }
                         )
                     }
@@ -103,14 +117,74 @@ struct SettingsView: View {
     }
 }
 
+private struct CreditSettingsRow: View {
+    let provider: UsageProvider
+    @ObservedObject var store: UsageStore
+
+    private var preference: CreditDisplayPreference { store.creditDisplaySettings[provider] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: GaugeRow.columnSpacing) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(provider.displayName)
+                    Text(CreditFormatter.text(for: store.credits(for: provider)))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                ForEach(GaugePlacement.allCases, id: \.self) { placement in
+                    Toggle(
+                        "\(provider.displayName) credits: \(placement.accessibilityTitle)",
+                        isOn: Binding(
+                            get: { preference.placements.contains(placement) },
+                            set: { store.setCredits(provider, shown: $0, in: placement) }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .help(placement.accessibilityTitle)
+                    .frame(width: GaugeRow.columnWidth)
+                }
+            }
+
+            if preference.placements.contains(.menuBar), store.credits(for: provider)?.isUnlimited != true {
+                HStack {
+                    Text("Full gauge")
+                    Spacer()
+                    TextField(
+                        "Amount",
+                        value: Binding(
+                            get: { preference.fullGaugeAmount },
+                            set: { store.setCreditGaugeAmount($0, for: provider) }
+                        ),
+                        format: .number.precision(.fractionLength(0...2))
+                    )
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 90)
+                    .accessibilityLabel("\(provider.displayName) full gauge amount")
+                    Text(store.credits(for: provider)?.currency ?? (provider == .codex ? "credits" : "currency units"))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                if preference.fullGaugeAmount == nil {
+                    Text("Enter an amount to fill the gauge against.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
 private struct GaugeRow: View {
     static let columnWidth: CGFloat = 36
     static let columnSpacing: CGFloat = 8
     static let handleWidth: CGFloat = 16
 
     let entry: GaugeEntry
-    let bucket: UsageBucket?
-    let isLocked: (GaugePlacement) -> Bool
     let setShown: (Bool, GaugePlacement) -> Void
 
     var body: some View {
@@ -124,13 +198,12 @@ private struct GaugeRow: View {
 
             ForEach(GaugePlacement.allCases, id: \.self) { placement in
                 Toggle(
-                    placement.accessibilityTitle,
+                    "\(entry.provider.displayName) \(entry.title): \(placement.accessibilityTitle)",
                     isOn: Binding(get: { entry.isShown(in: placement) }, set: { setShown($0, placement) })
                 )
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-                .disabled(isLocked(placement))
-                .help(isLocked(placement) ? "At least one gauge stays in the menu bar" : placement.accessibilityTitle)
+                .help(placement.accessibilityTitle)
                 .frame(width: Self.columnWidth)
             }
 
@@ -140,10 +213,6 @@ private struct GaugeRow: View {
                 .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
-    }
-
-    private var detail: String {
-        return "\(entry.provider.displayName)"
     }
 }
 

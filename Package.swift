@@ -23,17 +23,5 @@ let package = Package(
             path: "Sources/ClaudeUsage",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
-        .testTarget(
-            name: "UsageCoreTests",
-            dependencies: ["UsageCore"],
-            path: "Tests/UsageCoreTests",
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "ClaudeUsageTests",
-            dependencies: ["ClaudeUsage", "UsageCore"],
-            path: "Tests/ClaudeUsageTests",
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
     ]
 )

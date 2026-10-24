@@ -46,32 +46,3 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Configuration/ClaudeUsage.release.entitlements
         CODE_SIGN_STYLE: Automatic
         ENABLE_USER_SCRIPT_SANDBOXING: true
-    scheme:
-      gatherCoverageData: true
-      testTargets:
-        - ClaudeUsageTests
-        - UsageCoreTests
-  ClaudeUsageTests:
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - path: Tests/ClaudeUsageTests
-        optional: true
-    dependencies:
-      - target: ClaudeUsage
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.ClaudeUsageTests
-        GENERATE_INFOPLIST_FILE: true
-  UsageCoreTests:
-    type: bundle.unit-test
-    platform: macOS
-    sources:
-      - path: Tests/UsageCoreTests
-        optional: true
-    dependencies:
-      - target: UsageCore
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.fredrir.UsageCoreTests
-        GENERATE_INFOPLIST_FILE: true

@@ -3,8 +3,8 @@ import Foundation
 public struct UsageResponseMapper: Sendable {
     public init() {}
 
-    public func map(_ response: UsageResponseDTO, fetchedAt: Date) -> UsageSnapshot {
-        UsageSnapshot(buckets: buckets(from: response), fetchedAt: fetchedAt)
+    public func map(_ response: UsageResponseDTO, fetchedAt: Date, credits: CreditBalance? = nil) -> UsageSnapshot {
+        UsageSnapshot(buckets: buckets(from: response), fetchedAt: fetchedAt, credits: credits)
     }
 
     public func buckets(from response: UsageResponseDTO) -> [UsageBucket] {

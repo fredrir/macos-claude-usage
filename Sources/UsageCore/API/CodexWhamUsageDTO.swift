@@ -96,6 +96,7 @@ public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
     public let rateLimit: RateLimit?
     public let additionalRateLimits: [String: AdditionalRateLimit]?
     public let rateLimitReachedType: RateLimitReachedType?
+    public let credits: CodexCreditsDTO?
 
     public init(
         userId: String? = nil,
@@ -104,7 +105,8 @@ public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
         planType: String? = nil,
         rateLimit: RateLimit? = nil,
         additionalRateLimits: [String: AdditionalRateLimit]? = nil,
-        rateLimitReachedType: RateLimitReachedType? = nil
+        rateLimitReachedType: RateLimitReachedType? = nil,
+        credits: CodexCreditsDTO? = nil
     ) {
         self.userId = userId
         self.accountId = accountId
@@ -113,6 +115,27 @@ public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
         self.rateLimit = rateLimit
         self.additionalRateLimits = additionalRateLimits
         self.rateLimitReachedType = rateLimitReachedType
+        self.credits = credits
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard
+            container.contains(.rateLimit) || container.contains(.additionalRateLimits) || container.contains(.credits)
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .rateLimit, in: container, debugDescription: "The Codex response has no usage or credit fields."
+            )
+        }
+        userId = try container.decodeIfPresent(String.self, forKey: .userId)
+        accountId = try container.decodeIfPresent(String.self, forKey: .accountId)
+        email = try container.decodeIfPresent(String.self, forKey: .email)
+        planType = try container.decodeIfPresent(String.self, forKey: .planType)
+        rateLimit = try container.decodeIfPresent(RateLimit.self, forKey: .rateLimit)
+        additionalRateLimits = try container.decodeIfPresent(
+            [String: AdditionalRateLimit].self, forKey: .additionalRateLimits)
+        rateLimitReachedType = try container.decodeIfPresent(RateLimitReachedType.self, forKey: .rateLimitReachedType)
+        credits = try? container.decodeIfPresent(CodexCreditsDTO.self, forKey: .credits)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -123,6 +146,7 @@ public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
         case rateLimit = "rate_limit"
         case additionalRateLimits = "additional_rate_limits"
         case rateLimitReachedType = "rate_limit_reached_type"
+        case credits
     }
 
     public func toRateLimitsResponse() -> CodexRateLimitsResponseDTO {
@@ -147,7 +171,8 @@ public struct CodexWhamUsageDTO: Codable, Equatable, Sendable {
             primary: primaryWin,
             secondary: secondaryWin,
             planType: planType,
-            rateLimitReachedType: rateLimitReachedType?.type
+            rateLimitReachedType: rateLimitReachedType?.type,
+            credits: credits
         )
 
         var byId: [String: CodexRateLimitDTO] = ["codex": mainLimit]

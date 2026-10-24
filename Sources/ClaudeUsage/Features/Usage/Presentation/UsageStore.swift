@@ -29,6 +29,7 @@ final class UsageStore: ObservableObject {
 
     private static let minimumSpacing: TimeInterval = 15 * 60
     private static let gaugeLayoutKey = "gaugeLayout"
+    private static let creditDisplayKey = "creditDisplaySettings"
     static let stalenessThreshold: TimeInterval = 60 * 60
 
     @Published private(set) var buckets: [UsageBucket] = []
@@ -37,8 +38,10 @@ final class UsageStore: ObservableObject {
     @Published private(set) var codexBuckets: [UsageBucket] = []
     @Published private(set) var codexLastUpdated: Date?
     @Published private(set) var codexStatus: Status = .loading
+    @Published private(set) var claudeCredits: CreditBalance?
+    @Published private(set) var codexCredits: CreditBalance?
     @Published var pollInterval: TimeInterval {
-        didSet { UserDefaults.standard.set(pollInterval, forKey: "pollInterval") }
+        didSet { defaults?.set(pollInterval, forKey: "pollInterval") }
     }
     @Published private(set) var claudeIsSignedIn: Bool = false
     @Published private(set) var codexIsSignedIn: Bool = false
@@ -54,10 +57,19 @@ final class UsageStore: ObservableObject {
     @Published private(set) var gaugeLayout: GaugeLayout {
         didSet {
             guard gaugeLayout != oldValue, let data = try? JSONEncoder().encode(gaugeLayout) else { return }
-            UserDefaults.standard.set(data, forKey: Self.gaugeLayoutKey)
+            defaults?.set(data, forKey: Self.gaugeLayoutKey)
+        }
+    }
+    @Published private(set) var creditDisplaySettings: CreditDisplaySettings {
+        didSet {
+            guard creditDisplaySettings != oldValue, let data = try? JSONEncoder().encode(creditDisplaySettings) else {
+                return
+            }
+            defaults?.set(data, forKey: Self.creditDisplayKey)
         }
     }
 
+    private let defaults: UserDefaults?
     private let repository: UsageRepository?
     private let codexRepository: CodexUsageRepository?
     private let claudeAuth: any ProviderAuthenticating
@@ -80,24 +92,31 @@ final class UsageStore: ObservableObject {
         claudeAuth: any ProviderAuthenticating = ClaudeAuthentication(),
         codexAuth: any ProviderAuthenticating = CodexAuthentication(),
         clock: any DateProvider = SystemDateProvider(),
-        network: NetworkMonitor? = NetworkMonitor()
+        network: NetworkMonitor? = NetworkMonitor(),
+        defaults: UserDefaults = .standard
     ) {
+        self.defaults = defaults
         self.repository = repository
         self.codexRepository = codexRepository
         self.claudeAuth = claudeAuth
         self.codexAuth = codexAuth
         self.clock = clock
         self.network = network
-        let stored = UserDefaults.standard.double(forKey: "pollInterval")
+        let stored = defaults.double(forKey: "pollInterval")
         pollInterval = stored > 0 ? stored : 30 * 60
         gaugeLayout =
-            UserDefaults.standard.data(forKey: Self.gaugeLayoutKey)
+            defaults.data(forKey: Self.gaugeLayoutKey)
             .flatMap { try? JSONDecoder().decode(GaugeLayout.self, from: $0) } ?? GaugeLayout()
+        creditDisplaySettings =
+            defaults.data(forKey: Self.creditDisplayKey)
+            .flatMap { try? JSONDecoder().decode(CreditDisplaySettings.self, from: $0) } ?? CreditDisplaySettings()
     }
 
     init(
         fixture buckets: [UsageBucket],
         codexBuckets: [UsageBucket] = [],
+        claudeCredits: CreditBalance? = nil,
+        codexCredits: CreditBalance? = nil,
         lastUpdated: Date,
         codexLastUpdated: Date? = nil,
         status: Status = .ok,
@@ -107,6 +126,10 @@ final class UsageStore: ObservableObject {
         codexAuth: any ProviderAuthenticating = FixedAuthentication(signedIn: true),
         clock: any DateProvider
     ) {
+        defaults = nil
+        creditDisplaySettings = CreditDisplaySettings()
+        self.claudeCredits = claudeCredits
+        self.codexCredits = codexCredits
         repository = nil
         codexRepository = nil
         network = nil
@@ -118,7 +141,7 @@ final class UsageStore: ObservableObject {
         self.lastUpdated = lastUpdated
         self.status = status
         self.codexBuckets = codexBuckets
-        self.codexLastUpdated = codexLastUpdated ?? (codexBuckets.isEmpty ? nil : lastUpdated)
+        self.codexLastUpdated = codexLastUpdated ?? (codexBuckets.isEmpty && codexCredits == nil ? nil : lastUpdated)
         self.codexStatus = codexStatus
         var gaugeLayout = GaugeLayout()
         gaugeLayout.discover(buckets, from: .claude)
@@ -270,6 +293,23 @@ final class UsageStore: ObservableObject {
         gaugeLayout.setShown(shown, in: placement, for: id)
     }
 
+    func setCredits(_ provider: UsageProvider, shown: Bool, in placement: GaugePlacement) {
+        if shown {
+            creditDisplaySettings[provider].placements.insert(placement)
+            if placement == .menuBar, creditDisplaySettings[provider].fullGaugeAmount == nil,
+                let amount = credits(for: provider)?.amount, amount > 0
+            {
+                creditDisplaySettings[provider].fullGaugeAmount = amount
+            }
+        } else {
+            creditDisplaySettings[provider].placements.remove(placement)
+        }
+    }
+
+    func setCreditGaugeAmount(_ amount: Double?, for provider: UsageProvider) {
+        creditDisplaySettings[provider].fullGaugeAmount = amount.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+    }
+
     func moveGauges(fromOffsets source: IndexSet, toOffset destination: Int) {
         gaugeLayout.move(fromOffsets: source, toOffset: destination)
     }
@@ -288,6 +328,7 @@ final class UsageStore: ObservableObject {
 
     private func clearClaude() {
         buckets = []
+        claudeCredits = nil
         lastUpdated = nil
         claudeEmail = nil
         if status != .signedOut { status = .signedOut }
@@ -295,6 +336,7 @@ final class UsageStore: ObservableObject {
 
     private func clearCodex() {
         codexBuckets = []
+        codexCredits = nil
         codexLastUpdated = nil
         codexEmail = nil
         if codexStatus != .signedOut { codexStatus = .signedOut }
@@ -458,12 +500,14 @@ final class UsageStore: ObservableObject {
 
     private func apply(_ snapshot: UsageSnapshot) {
         buckets = snapshot.buckets
+        claudeCredits = snapshot.credits
         lastUpdated = snapshot.fetchedAt
         gaugeLayout.discover(snapshot.buckets, from: .claude)
     }
 
     private func applyCodex(_ snapshot: UsageSnapshot) {
         codexBuckets = snapshot.buckets
+        codexCredits = snapshot.credits
         codexLastUpdated = snapshot.fetchedAt
         gaugeLayout.discover(snapshot.buckets, from: .codex)
     }
@@ -490,6 +534,21 @@ final class UsageStore: ObservableObject {
 }
 
 extension UsageStore {
+    func credits(for provider: UsageProvider) -> CreditBalance? {
+        switch provider {
+        case .claude: claudeCredits
+        case .codex: codexCredits
+        }
+    }
+
+    func creditProviders(in placement: GaugePlacement) -> [UsageProvider] {
+        UsageProvider.allCases.filter { creditDisplaySettings[$0].placements.contains(placement) }
+    }
+
+    func creditFraction(for provider: UsageProvider) -> Double? {
+        credits(for: provider)?.remainingFraction(fullAmount: creditDisplaySettings[provider].fullGaugeAmount)
+    }
+
     func buckets(from provider: UsageProvider) -> [UsageBucket] {
         switch provider {
         case .claude: buckets

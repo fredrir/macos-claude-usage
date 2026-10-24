@@ -74,6 +74,15 @@ enum UsageMenuBuilder {
                 authFailure: store.codexAuthFeedback?.failure
             )
         }
+
+        if store.creditDisplaySettings[provider].placements.contains(.menu) {
+            menu.addItem(
+                row(
+                    CreditMenuRow(
+                        credits: store.credits(for: provider),
+                        dimmed: provider == .claude ? store.isStale : store.codexIsStale
+                    )))
+        }
     }
 
     private static func appendProvider(

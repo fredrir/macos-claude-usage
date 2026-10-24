@@ -23,6 +23,7 @@ public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
     public let secondary: CodexRateLimitWindowDTO?
     public let planType: String?
     public let rateLimitReachedType: String?
+    public let credits: CodexCreditsDTO?
 
     public init(
         limitId: String,
@@ -30,7 +31,8 @@ public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
         primary: CodexRateLimitWindowDTO? = nil,
         secondary: CodexRateLimitWindowDTO? = nil,
         planType: String? = nil,
-        rateLimitReachedType: String? = nil
+        rateLimitReachedType: String? = nil,
+        credits: CodexCreditsDTO? = nil
     ) {
         self.limitId = limitId
         self.limitName = limitName
@@ -38,6 +40,7 @@ public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
         self.secondary = secondary
         self.planType = planType
         self.rateLimitReachedType = rateLimitReachedType
+        self.credits = credits
     }
 
     public init(from decoder: any Decoder) throws {
@@ -48,6 +51,7 @@ public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
         secondary = try container.decodeIfPresent(CodexRateLimitWindowDTO.self, forKey: .secondary)
         planType = try container.decodeIfPresent(String.self, forKey: .planType)
         rateLimitReachedType = try container.decodeIfPresent(String.self, forKey: .rateLimitReachedType)
+        credits = try? container.decodeIfPresent(CodexCreditsDTO.self, forKey: .credits)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -57,6 +61,7 @@ public struct CodexRateLimitDTO: Codable, Equatable, Sendable {
         case secondary
         case planType
         case rateLimitReachedType
+        case credits
     }
 }
 

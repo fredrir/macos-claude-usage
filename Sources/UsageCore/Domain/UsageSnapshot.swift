@@ -3,10 +3,12 @@ import Foundation
 public struct UsageSnapshot: Equatable, Sendable {
     public let buckets: [UsageBucket]
     public let fetchedAt: Date
+    public let credits: CreditBalance?
 
-    public init(buckets: [UsageBucket], fetchedAt: Date) {
+    public init(buckets: [UsageBucket], fetchedAt: Date, credits: CreditBalance? = nil) {
         self.buckets = buckets
         self.fetchedAt = fetchedAt
+        self.credits = credits
     }
 
     public var session: UsageBucket? {

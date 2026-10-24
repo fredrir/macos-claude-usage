@@ -52,12 +52,14 @@ struct CodexUsageClient: CodexUsageFetching {
 
     static func decode(_ data: Data) throws -> CodexRateLimitsResponseDTO {
         if let direct = try? JSONDecoder().decode(CodexRateLimitsResponseDTO.self, from: data),
-           direct.rateLimits != nil {
+            direct.rateLimits != nil
+        {
             return direct
         }
 
         if let wham = try? JSONDecoder().decode(CodexWhamUsageDTO.self, from: data),
-           wham.rateLimit != nil || wham.additionalRateLimits != nil {
+            wham.rateLimit != nil || wham.additionalRateLimits != nil || wham.credits != nil
+        {
             return wham.toRateLimitsResponse()
         }
 

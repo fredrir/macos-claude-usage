@@ -107,6 +107,27 @@ struct StatusMenuRow: View {
     }
 }
 
+struct CreditMenuRow: View {
+    let credits: CreditBalance?
+    let dimmed: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Purchased credits")
+                .font(MenuMetrics.titleFont)
+            Text(CreditFormatter.text(for: credits))
+                .font(MenuMetrics.titleFont)
+                .foregroundStyle(MenuMetrics.secondaryLabel)
+                .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(MenuMetrics.rowInsets)
+        .padding(.vertical, 4)
+        .frame(width: MenuMetrics.contentWidth, alignment: .leading)
+        .opacity(dimmed ? 0.55 : 1)
+    }
+}
+
 struct PlaceholderMenuRow: View {
     let message: String
 

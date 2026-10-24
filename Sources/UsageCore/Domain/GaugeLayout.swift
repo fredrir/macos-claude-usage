@@ -16,8 +16,6 @@ public enum GaugePlacement: String, Codable, CaseIterable, Sendable {
     case menuBar
     case menu
 
-    /// The menu bar always keeps a gauge so the status item has something to click.
-    var requiresOne: Bool { self == .menuBar }
 }
 
 public struct GaugeEntry: Codable, Equatable, Identifiable, Sendable {
@@ -64,10 +62,6 @@ public struct GaugeLayout: Codable, Equatable, Sendable {
         entries(in: placement).filter { $0.provider == provider }.map(\.bucketID)
     }
 
-    public func isLocked(_ entry: GaugeEntry, in placement: GaugePlacement) -> Bool {
-        placement.requiresOne && entry.isShown(in: placement) && entries(in: placement).count == 1
-    }
-
     /// The first buckets seen from a provider pick the defaults; anything appearing later starts hidden.
     public mutating func discover(_ buckets: [UsageBucket], from provider: UsageProvider) {
         let isFirstDiscovery = !entries.contains { $0.provider == provider }
@@ -93,7 +87,7 @@ public struct GaugeLayout: Codable, Equatable, Sendable {
 
         if isShown {
             entries[index].placements.insert(placement)
-        } else if !isLocked(entries[index], in: placement) {
+        } else {
             entries[index].placements.remove(placement)
         }
     }

@@ -4,7 +4,8 @@ public struct CodexRateLimitsMapper: Sendable {
     public init() {}
 
     public func map(_ response: CodexRateLimitsResponseDTO, fetchedAt: Date) -> UsageSnapshot {
-        UsageSnapshot(buckets: buckets(from: response), fetchedAt: fetchedAt)
+        let credits = response.rateLimitsByLimitId?["codex"]?.credits ?? response.rateLimits?.credits
+        return UsageSnapshot(buckets: buckets(from: response), fetchedAt: fetchedAt, credits: credits?.creditBalance)
     }
 
     public func buckets(from response: CodexRateLimitsResponseDTO) -> [UsageBucket] {
@@ -26,7 +27,8 @@ public struct CodexRateLimitsMapper: Sendable {
                     primary: value.primary,
                     secondary: value.secondary,
                     planType: value.planType,
-                    rateLimitReachedType: value.rateLimitReachedType
+                    rateLimitReachedType: value.rateLimitReachedType,
+                    credits: value.credits
                 )
             }
         } else if let fallback = response.rateLimits {

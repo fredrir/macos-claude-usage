@@ -13,6 +13,7 @@ actor UsageRepository {
     private struct CachedPayload: Codable, Sendable {
         let fetchedAt: Date
         let raw: Data
+        let credits: CreditBalance?
     }
 
     private let client: any UsageFetching
@@ -61,7 +62,7 @@ actor UsageRepository {
             persistPollingStateBestEffort(context: "cache migration")
         }
 
-        return mapper.map(response, fetchedAt: payload.fetchedAt)
+        return mapper.map(response, fetchedAt: payload.fetchedAt, credits: payload.credits)
     }
 
     /// Drops everything the signed-out account left behind so no stale usage survives a sign-out.
@@ -105,11 +106,11 @@ actor UsageRepository {
         do {
             let result = try await client.fetch()
             let finishedAt = clock.now
-            let snapshot = mapper.map(result.response, fetchedAt: finishedAt)
+            let snapshot = mapper.map(result.response, fetchedAt: finishedAt, credits: result.credits)
 
             pollingState = policy.recordingSuccess(in: pollingState, at: finishedAt)
             persistPollingStateBestEffort(context: "successful response")
-            persistCacheBestEffort(raw: result.raw, fetchedAt: finishedAt)
+            persistCacheBestEffort(raw: result.raw, fetchedAt: finishedAt, credits: result.credits)
 
             return .updated(snapshot)
         } catch let error as UsageAPIError {
@@ -185,9 +186,9 @@ actor UsageRepository {
         }
     }
 
-    private func persistCacheBestEffort(raw: Data, fetchedAt: Date) {
+    private func persistCacheBestEffort(raw: Data, fetchedAt: Date, credits: CreditBalance?) {
         do {
-            let payload = CachedPayload(fetchedAt: fetchedAt, raw: raw)
+            let payload = CachedPayload(fetchedAt: fetchedAt, raw: raw, credits: credits)
             let encoded = try JSONEncoder().encode(payload)
             try encoded.write(to: cacheURL, options: .atomic)
         } catch {

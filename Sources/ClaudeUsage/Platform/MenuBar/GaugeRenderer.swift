@@ -4,6 +4,7 @@ import UsageCore
 enum GaugeRenderer {
     enum Slot: Sendable {
         case usage(UsageBucket)
+        case credit(fraction: Double?)
         case empty
     }
 
@@ -25,6 +26,11 @@ enum GaugeRenderer {
     }
 
     static func image(for slots: [Slot]) -> NSImage {
+        if slots.isEmpty, let icon = NSImage(systemSymbolName: "chart.bar", accessibilityDescription: "Usage") {
+            icon.isTemplate = true
+            icon.size = NSSize(width: imageHeight, height: imageHeight)
+            return icon
+        }
         let drawn = slots.isEmpty ? [.empty] : slots
         let totalWidth = CGFloat(drawn.count) * segmentWidth + groupGap * CGFloat(drawn.count - 1)
 
@@ -34,6 +40,13 @@ enum GaugeRenderer {
                 switch slot {
                 case .usage(let bucket):
                     drawGauge(remaining: bucket.remaining, at: cursor, color: tint(level: bucket.level))
+                case .credit(let fraction):
+                    if let fraction {
+                        let level: UsageLevel = fraction < 0.1 ? .critical : fraction < 0.25 ? .warning : .normal
+                        drawGauge(remaining: fraction * 100, at: cursor, color: tint(level: level))
+                    } else {
+                        drawMissingGauge(at: cursor)
+                    }
                 case .empty:
                     drawMissingGauge(at: cursor)
                 }
