@@ -110,6 +110,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 440)
+        .background(WindowInitialFocus())
         .onAppear {
             launchAtLogin.refresh()
             Task { await store.refreshAuthState() }
@@ -155,7 +156,7 @@ private struct CreditSettingsRow: View {
                     TextField(
                         "Amount",
                         value: Binding(
-                            get: { preference.fullGaugeAmount },
+                            get: { preference.resolvedFullGaugeAmount(for: store.credits(for: provider)) },
                             set: { store.setCreditGaugeAmount($0, for: provider) }
                         ),
                         format: .number.precision(.fractionLength(0...2))
@@ -170,9 +171,15 @@ private struct CreditSettingsRow: View {
                 }
                 .font(.caption)
                 if preference.fullGaugeAmount == nil {
-                    Text("Enter an amount to fill the gauge against.")
+                    Text("Tracking the current credit balance.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else {
+                    Button("Use current balance") {
+                        store.setCreditGaugeAmount(nil, for: provider)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
                 }
             }
         }

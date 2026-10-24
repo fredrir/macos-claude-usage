@@ -296,18 +296,20 @@ final class UsageStore: ObservableObject {
     func setCredits(_ provider: UsageProvider, shown: Bool, in placement: GaugePlacement) {
         if shown {
             creditDisplaySettings[provider].placements.insert(placement)
-            if placement == .menuBar, creditDisplaySettings[provider].fullGaugeAmount == nil,
-                let amount = credits(for: provider)?.amount, amount > 0
-            {
-                creditDisplaySettings[provider].fullGaugeAmount = amount
-            }
         } else {
             creditDisplaySettings[provider].placements.remove(placement)
         }
     }
 
     func setCreditGaugeAmount(_ amount: Double?, for provider: UsageProvider) {
-        creditDisplaySettings[provider].fullGaugeAmount = amount.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        let preference = creditDisplaySettings[provider]
+        let sanitized = CreditDisplayPreference.sanitized(amount)
+        // Ignore commit-echoes of the resolved default, so leaving the field alone keeps following the balance.
+        guard sanitized != preference.fullGaugeAmount,
+            sanitized != preference.resolvedFullGaugeAmount(for: credits(for: provider))
+        else { return }
+
+        creditDisplaySettings[provider].fullGaugeAmount = sanitized
     }
 
     func moveGauges(fromOffsets source: IndexSet, toOffset destination: Int) {
@@ -546,7 +548,10 @@ extension UsageStore {
     }
 
     func creditFraction(for provider: UsageProvider) -> Double? {
-        credits(for: provider)?.remainingFraction(fullAmount: creditDisplaySettings[provider].fullGaugeAmount)
+        let credits = credits(for: provider)
+        return credits?.remainingFraction(
+            fullAmount: creditDisplaySettings[provider].resolvedFullGaugeAmount(for: credits)
+        )
     }
 
     func buckets(from provider: UsageProvider) -> [UsageBucket] {
