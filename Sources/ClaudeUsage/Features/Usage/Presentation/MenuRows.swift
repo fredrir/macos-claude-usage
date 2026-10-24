@@ -37,7 +37,7 @@ struct ProviderHeaderRow: View {
                 MenuIconButton(
                     systemName: "arrow.clockwise",
                     help: "Refresh",
-                    isSpinning: store.isRefreshing,
+                    isSpinning: store.showsRefreshSpinner,
                     action: refresh
                 )
                 .accessibilityLabel("Refresh usage")

@@ -130,12 +130,12 @@ final class StatusMenuController: NSObject {
 extension StatusMenuController: @MainActor NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         Task { await store.refreshAuthState() }
-        store.refreshIfStale()
         rebuildMenu()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         isMenuOpen = true
+        store.refreshSilently()
     }
 
     func menuDidClose(_ menu: NSMenu) {

@@ -27,7 +27,6 @@ final class UsageStore: ObservableObject {
         var failure: String? { kind == .failure ? message : nil }
     }
 
-    private static let minimumSpacing: TimeInterval = 15 * 60
     private static let gaugeLayoutKey = "gaugeLayout"
     private static let creditDisplayKey = "creditDisplaySettings"
     static let stalenessThreshold: TimeInterval = 60 * 60
@@ -54,6 +53,7 @@ final class UsageStore: ObservableObject {
     @Published private(set) var claudeAuthFeedback: AuthFeedback?
     @Published private(set) var codexAuthFeedback: AuthFeedback?
     @Published private(set) var isRefreshing: Bool = false
+    @Published private(set) var showsRefreshSpinner: Bool = false
     @Published private(set) var gaugeLayout: GaugeLayout {
         didSet {
             guard gaugeLayout != oldValue, let data = try? JSONEncoder().encode(gaugeLayout) else { return }
@@ -156,12 +156,14 @@ final class UsageStore: ObservableObject {
         network?.start()
 
         isRefreshing = true
+        showsRefreshSpinner = true
         refreshTask = Task { [weak self] in
             guard let self else { return }
             await loadCachedSnapshots()
             await performRefresh(manual: false)
             refreshTask = nil
             isRefreshing = false
+            showsRefreshSpinner = false
         }
 
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -170,11 +172,9 @@ final class UsageStore: ObservableObject {
         timer?.tolerance = 10
     }
 
-    func refreshIfStale() {
-        let threshold = max(Self.minimumSpacing, pollInterval / 2)
-        if claudeNeedsRefresh(threshold: threshold) || codexNeedsRefresh(threshold: threshold) {
-            scheduleRefresh(manual: false)
-        }
+    /// Refreshes whenever the menu opens, without showing progress UI.
+    func refreshSilently() {
+        scheduleRefresh(manual: true, showsProgress: false)
     }
 
     func refreshManually() {
@@ -352,14 +352,22 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    private func scheduleRefresh(manual: Bool) {
-        guard refreshTask == nil, repository != nil || codexRepository != nil else { return }
+    private func scheduleRefresh(manual: Bool, showsProgress: Bool = true) {
+        guard repository != nil || codexRepository != nil else { return }
+        guard refreshTask == nil else {
+            // Promote an in-flight background refresh to a visible one when the user asks for it.
+            if showsProgress { showsRefreshSpinner = true }
+            return
+        }
+
         isRefreshing = true
+        if showsProgress { showsRefreshSpinner = true }
         refreshTask = Task { [weak self] in
             guard let self else { return }
             await performRefresh(manual: manual)
             refreshTask = nil
             isRefreshing = false
+            showsRefreshSpinner = false
         }
     }
 
