@@ -80,6 +80,7 @@ enum UsageMenuBuilder {
                 row(
                     CreditMenuRow(
                         credits: store.credits(for: provider),
+                        remainingFraction: store.creditFraction(for: provider),
                         dimmed: provider == .claude ? store.isStale : store.codexIsStale
                     )))
         }

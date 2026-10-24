@@ -48,30 +48,34 @@ struct ProviderHeaderRow: View {
     }
 }
 
-struct BucketMenuRow: View {
-    let bucket: UsageBucket
+struct MenuCardRow: View {
+    let title: String
+    let trailingText: String
+    let usedFraction: Double?
+    let level: UsageLevel?
+    let detail: String?
     let dimmed: Bool
-    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(bucket.title)
+                Text(title)
                     .font(MenuMetrics.titleFont)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text("\(Int(bucket.remaining.rounded(.down)))% left")
+                Text(trailingText)
                     .font(MenuMetrics.titleFont)
                     .foregroundStyle(MenuMetrics.secondaryLabel)
                     .monospacedDigit()
+                    .lineLimit(1)
                     .fixedSize()
             }
 
-            GaugeBar(fraction: bucket.usedFraction, tint: tint)
+            GaugeBar(fraction: usedFraction ?? 0, tint: tint)
 
-            if let reset = ResetFormatter.text(for: bucket.resetsAt, relativeTo: now) {
-                Text(reset)
+            if let detail {
+                Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(MenuMetrics.secondaryLabel)
                     .lineLimit(1)
@@ -84,11 +88,28 @@ struct BucketMenuRow: View {
     }
 
     private var tint: Color {
-        switch bucket.level {
-        case .critical: return Color(nsColor: .systemRed)
-        case .warning: return Color(nsColor: .systemOrange)
-        case .normal: return Color(nsColor: .systemGreen)
+        switch level {
+        case .some(.critical): Color(nsColor: .systemRed)
+        case .some(.warning): Color(nsColor: .systemOrange)
+        case .none, .some(.normal): Color(nsColor: .systemGreen)
         }
+    }
+}
+
+struct BucketMenuRow: View {
+    let bucket: UsageBucket
+    let dimmed: Bool
+    let now: Date
+
+    var body: some View {
+        MenuCardRow(
+            title: bucket.title,
+            trailingText: "\(Int(bucket.remaining.rounded(.down)))% left",
+            usedFraction: bucket.usedFraction,
+            level: bucket.level,
+            detail: ResetFormatter.text(for: bucket.resetsAt, relativeTo: now),
+            dimmed: dimmed
+        )
     }
 }
 
@@ -109,22 +130,18 @@ struct StatusMenuRow: View {
 
 struct CreditMenuRow: View {
     let credits: CreditBalance?
+    let remainingFraction: Double?
     let dimmed: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Purchased credits")
-                .font(MenuMetrics.titleFont)
-            Text(CreditFormatter.text(for: credits))
-                .font(MenuMetrics.titleFont)
-                .foregroundStyle(MenuMetrics.secondaryLabel)
-                .monospacedDigit()
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(MenuMetrics.rowInsets)
-        .padding(.vertical, 4)
-        .frame(width: MenuMetrics.contentWidth, alignment: .leading)
-        .opacity(dimmed ? 0.55 : 1)
+        MenuCardRow(
+            title: "Credits",
+            trailingText: CreditFormatter.text(for: credits),
+            usedFraction: remainingFraction.map { 1 - $0 },
+            level: remainingFraction.map(UsageLevel.init(remainingFraction:)),
+            detail: nil,
+            dimmed: dimmed
+        )
     }
 }
 

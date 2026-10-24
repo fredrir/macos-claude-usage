@@ -11,6 +11,16 @@ public enum UsageLevel: String, Codable, Equatable, Sendable {
     case normal
     case warning
     case critical
+
+    public init(remainingFraction: Double) {
+        if remainingFraction < 0.1 {
+            self = .critical
+        } else if remainingFraction < 0.25 {
+            self = .warning
+        } else {
+            self = .normal
+        }
+    }
 }
 
 public enum UsageSeverity: Codable, Equatable, Sendable {

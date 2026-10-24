@@ -42,7 +42,7 @@ enum GaugeRenderer {
                     drawGauge(remaining: bucket.remaining, at: cursor, color: tint(level: bucket.level))
                 case .credit(let fraction):
                     if let fraction {
-                        let level: UsageLevel = fraction < 0.1 ? .critical : fraction < 0.25 ? .warning : .normal
+                        let level = UsageLevel(remainingFraction: fraction)
                         drawGauge(remaining: fraction * 100, at: cursor, color: tint(level: level))
                     } else {
                         drawMissingGauge(at: cursor)

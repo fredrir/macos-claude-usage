@@ -43,7 +43,7 @@ struct SettingsView: View {
                 }
             } header: {
                 HStack(spacing: GaugeRow.columnSpacing) {
-                    Text("Purchased credits")
+                    Text("Credits")
                     Spacer()
                     ForEach(GaugePlacement.allCases, id: \.self) { placement in
                         Text(placement.columnTitle)
